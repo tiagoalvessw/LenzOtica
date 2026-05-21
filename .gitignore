@@ -1,0 +1,18 @@
+# Credenciais e segredos
+server/.env
+server/credentials.json
+server/credentials.js
+server/token.json
+server/sessions.json
+server/sessions.json.bak
+
+# Logs
+server/out.log
+server/err.log
+
+# Cache Python
+server/__pycache__/
+*.pyc
+
+# Backups
+*.bak

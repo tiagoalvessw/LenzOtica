@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: evolution-postgres
+    restart: always
+    environment:
+      - POSTGRES_DB=evolution
+      - POSTGRES_USER=evolution
+      - POSTGRES_PASSWORD=evolution123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  evolution-api:
+    image: evolution-api:local
+    container_name: evolution-api
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - AUTHENTICATION_API_KEY=lenz-otica-key-2024
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://evolution:evolution123@postgres:5432/evolution
+      - DATABASE_CONNECTION_CLIENT_NAME=evolution_db
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_LOCAL_ENABLED=true
+      - CONFIG_SESSION_PHONE_CLIENT=Evolution API
+      - CONFIG_SESSION_PHONE_NAME=Chrome
+      - CONFIG_SESSION_PHONE_VERSION=6.5.0
+      - NODE_OPTIONS=--require /tmp/patch-os.js
+    volumes:
+      - evolution_data:/evolution/instances
+      - ./patch-os.js:/tmp/patch-os.js
+    depends_on:
+      - postgres
+
+volumes:
+  evolution_data:
+  postgres_data:
