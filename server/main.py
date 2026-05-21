@@ -472,67 +472,74 @@ async def webhook(request: Request):
 
         mark_response_received(sender)
 
-        reply = await asyncio.to_thread(get_response, sender, text)
+        try:
+            reply = await asyncio.to_thread(get_response, sender, text)
 
-        pending_match = PENDING_MARKER.search(reply)
-        if pending_match:
-            add_pending(sender, pending_match.group(1).strip())
-            reply = PENDING_MARKER.sub("", reply).strip()
+            pending_match = PENDING_MARKER.search(reply)
+            if pending_match:
+                add_pending(sender, pending_match.group(1).strip())
+                reply = PENDING_MARKER.sub("", reply).strip()
 
-        parts = [p.strip() for p in reply.split("[BREAK]") if p.strip()]
+            parts = [p.strip() for p in reply.split("[BREAK]") if p.strip()]
 
-        await asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
-        for i, part in enumerate(parts):
-            if i > 0:
-                await asyncio.sleep(_typing_delay(parts[i - 1]))
+            for i, part in enumerate(parts):
+                if i > 0:
+                    await asyncio.sleep(_typing_delay(parts[i - 1]))
 
-            match = MARKER.search(part)
-            if match:
-                name = match.group(1).strip()
-                date_str = match.group(2)
-                time_str = match.group(3)
+                match = MARKER.search(part)
+                if match:
+                    name = match.group(1).strip()
+                    date_str = match.group(2)
+                    time_str = match.group(3)
 
-                try:
-                    hour, minute = map(int, time_str.split(":"))
-                    dt = datetime.fromisoformat(date_str).replace(hour=hour, minute=minute)
-                except ValueError as e:
-                    print(f"[VALIDACAO] Data/hora invalida no marcador: {date_str} {time_str} — {e}")
-                    send_message(sender, part.split("[AGENDAR:")[0].strip())
-                    continue
-
-                _active = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received", "confirmed")
-                for _prev in [a for a in load_appointments() if a["phone"] == sender and a["status"] in _active]:
                     try:
-                        cancel_event(_prev.get("event_id", ""))
+                        hour, minute = map(int, time_str.split(":"))
+                        dt = datetime.fromisoformat(date_str).replace(hour=hour, minute=minute)
+                    except ValueError as e:
+                        print(f"[VALIDACAO] Data/hora invalida no marcador: {date_str} {time_str} — {e}")
+                        send_message(sender, part.split("[AGENDAR:")[0].strip())
+                        continue
+
+                    _active = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received", "confirmed")
+                    for _prev in [a for a in load_appointments() if a["phone"] == sender and a["status"] in _active]:
+                        try:
+                            cancel_event(_prev.get("event_id", ""))
+                        except Exception as e:
+                            print(f"[CALENDAR ERROR] cancel prev: {e}")
+                        cancel_appointment(sender, _prev["date"], _prev["time"])
+                        print(f"[REAGENDAMENTO] Anterior cancelado: {_prev['date']} {_prev['time']}")
+
+                    try:
+                        event_id = await asyncio.to_thread(create_event, name, date_str, time_str, sender)
                     except Exception as e:
-                        print(f"[CALENDAR ERROR] cancel prev: {e}")
-                    cancel_appointment(sender, _prev["date"], _prev["time"])
-                    print(f"[REAGENDAMENTO] Anterior cancelado: {_prev['date']} {_prev['time']}")
+                        print(f"[CALENDAR ERROR] {e}")
+                        event_id = ""
+                    add_appointment(sender, name, date_str, time_str, event_id)
+                    date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
+                    time_display = time_str.replace(":", "h")
 
-                try:
-                    event_id = await asyncio.to_thread(create_event, name, date_str, time_str, sender)
-                except Exception as e:
-                    print(f"[CALENDAR ERROR] {e}")
-                    event_id = ""
-                add_appointment(sender, name, date_str, time_str, event_id)
-                date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
-                time_display = time_str.replace(":", "h")
+                    confirmation = (
+                        f"Agendamento confirmado! 📝\n"
+                        f"Tipo de agendamento: Consulta - Exame de vista\n"
+                        f"➡️ {date_display} às {time_display}\n\n"
+                        f"Cliente: {name}\n\n"
+                        f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)\n\n"
+                        f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!"
+                    )
+                    await asyncio.to_thread(send_message, sender, confirmation)
+                else:
+                    clean = MARKER.sub("", part).strip()
+                    if clean:
+                        await asyncio.to_thread(send_message, sender, clean)
 
-                confirmation = (
-                    f"Agendamento confirmado! 📝\n"
-                    f"Tipo de agendamento: Consulta - Exame de vista\n"
-                    f"➡️ {date_display} às {time_display}\n\n"
-                    f"Cliente: {name}\n\n"
-                    f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)\n\n"
-                    f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!"
-                )
-                await asyncio.to_thread(send_message, sender, confirmation)
-            else:
-                clean = MARKER.sub("", part).strip()
-                if clean:
-                    await asyncio.to_thread(send_message, sender, clean)
+            print(f"LenzÓtica respondeu: {reply[:100]}")
 
-        print(f"LenzÓtica respondeu: {reply[:100]}")
+        except Exception as e:
+            error_info = f"{type(e).__name__}: {e}"
+            print(f"[WEBHOOK ERROR] {error_info}")
+            send_message(sender, "Um momento, por favor.")
+            add_pending(sender, f"Erro no processamento da mensagem — {error_info}")
 
     return {"status": "ok"}
