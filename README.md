@@ -85,7 +85,21 @@ O WhatsApp e o aplicativo de mensagens mais usado no Brasil. Para uma otica aten
 
 **Modelo escolhido:** `llama-3.3-70b-versatile` — modelo grande, com excelente compreensao de portugues e raciocinio para conduzir conversas de agendamento.
 
+**Modelo de fallback:** `llama-3.1-8b-instant` — acionado automaticamente quando o modelo principal atinge o limite de tokens por dia (TPD). Tem quota diaria propria de 500.000 tokens e janela de contexto de 128k, suficiente para o prompt do sistema.
+
 **Alternativa testada e descartada:** Google Gemini — o plano gratuito da conta do usuario estava com `limit: 0`, impossibilitando o uso.
+
+### Ollama — LLM Local para Testes
+**O que e:** ferramenta open-source que baixa e executa modelos de linguagem diretamente no computador, sem internet e sem custo.
+
+**Por que usar:**
+- O plano gratuito da Groq tem limite de 100.000 tokens por dia. Para desenvolver e testar o comportamento da Liza sem consumir essa quota, o Ollama roda o mesmo modelo localmente.
+- Testes ilimitados sem risco de esgotar a API de producao.
+- Funciona completamente offline.
+
+**Desvantagem:** respostas mais lentas em CPU (~5–15 segundos por mensagem). Adequado para desenvolvimento, nao para producao.
+
+**Como alternar:** variavel `USE_LOCAL_LLM` no `server/.env`.
 
 ### ngrok — Tunel para Desenvolvimento Local
 **O que e:** ferramenta que cria uma URL publica acessivel pela internet, redirecionando o trafego para sua maquina local.
@@ -292,11 +306,14 @@ EVOLUTION_API_KEY=lenz-otica-key-2024
 EVOLUTION_INSTANCE=lenz-otica
 ADMIN_TOKEN=uma-senha-forte-para-o-painel
 CALENDAR_EMBED_URL=https://calendar.google.com/calendar/embed?src=SEU_EMAIL&ctz=America%2FSao_Paulo
+USE_LOCAL_LLM=false
 ```
 
 > `ADMIN_TOKEN` e obrigatorio. O servidor nao inicia sem ele. Todos os endpoints `/admin/*` exigem esse token no header `X-Admin-Token`. O painel envia o token automaticamente via JavaScript — nao e necessario inserir manualmente.
 
 > `CALENDAR_EMBED_URL` e opcional. Obtenha a URL em: Google Calendar → Configuracoes → [nome do calendario] → Integrar agenda → URL publica. O calendario deve estar definido como publico para exibir os eventos.
+
+> `USE_LOCAL_LLM` e opcional (padrao: `false`). Defina como `true` para usar o Ollama local em vez da Groq — util para testes sem consumir tokens. Requer Ollama instalado e o modelo `llama3.1:8b` baixado.
 
 ### 3. Subir a infraestrutura Docker
 
@@ -874,6 +891,50 @@ Removidos os elementos redundantes sem alterar nenhum comportamento:
 | Reducao total | — | **-49%** |
 
 O custo por requisicao caiu de ~5.000 para ~2.500 tokens, dobrando a capacidade de historico e reduzindo a pressao sobre o limite de TPM do plano gratuito do Groq.
+
+---
+
+### Melhoria — Modo de teste local com Ollama (sem consumo de tokens)
+
+**Problema:** o plano gratuito da Groq tem limite de 100.000 tokens por dia. Em dias de desenvolvimento intenso, o limite e atingido rapidamente — cada requisicao custa ~2.500 tokens so de overhead do system prompt, independentemente do conteudo da conversa.
+
+**Solucao:** suporte a dois modos de operacao controlados pela variavel `USE_LOCAL_LLM` no `.env`:
+
+- `USE_LOCAL_LLM=false` (padrao) — usa a Groq API normalmente com fallback para `llama-3.1-8b-instant`
+- `USE_LOCAL_LLM=true` — usa o Ollama rodando localmente com o modelo `llama3.1:8b`, sem internet e sem custo
+
+**Como funciona no `ai.py`:**
+```python
+USE_LOCAL = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+
+if USE_LOCAL:
+    from openai import OpenAI as _LocalClient
+    client = _LocalClient(base_url="http://localhost:11434/v1", api_key="ollama")
+else:
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+```
+
+A API do Ollama e compativel com o padrao OpenAI — o restante do codigo nao muda.
+
+**Como configurar o Ollama:**
+```bash
+# 1. Instalar em ollama.com
+# 2. Baixar o modelo
+ollama pull llama3.1:8b
+# 3. Instalar a lib Python
+pip install openai
+# 4. Setar no .env
+USE_LOCAL_LLM=true
+```
+
+| | Groq (producao) | Ollama (testes) |
+|---|---|---|
+| Custo | Consome TPD (100k/dia) | Zero |
+| Velocidade | < 1 segundo | 5–15 seg (CPU) |
+| Qualidade | Alta (70b) | Boa (8b) |
+| Internet | Necessaria | Nao precisa |
+
+**Modelo de fallback adicionado:** `llama-3.1-8b-instant` reinserido na lista de fallback do modo Groq. Quando o `llama-3.3-70b-versatile` esgota o TPD diario, o servidor cai automaticamente para o modelo menor (500.000 tokens/dia de quota propria) sem interromper o atendimento.
 
 ---
 

@@ -10,7 +10,15 @@ from appointments import load as load_appointments
 
 load_dotenv()
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+USE_LOCAL = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+
+if USE_LOCAL:
+    from openai import OpenAI as _LocalClient
+    client = _LocalClient(base_url="http://localhost:11434/v1", api_key="ollama")
+    print("[AI] Modo LOCAL — usando Ollama (llama3.1:8b)")
+else:
+    client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    print("[AI] Modo PRODUÇÃO — usando Groq")
 
 SESSIONS_FILE = os.path.join(os.path.dirname(__file__), "sessions.json")
 
@@ -224,10 +232,11 @@ def get_response(sender: str, message: str) -> str:
     print(f"[AI] Tokens estimados do system prompt: {system_tokens}")
     sessions[sender] = _trim_history(sessions[sender], system_tokens)
 
-    MODELS = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-    ]
+    MODELS = (
+        ["llama3.1:8b"]
+        if USE_LOCAL else
+        ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    )
 
     response = None
     last_error = None
