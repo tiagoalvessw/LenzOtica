@@ -807,6 +807,76 @@ O HTML do painel e gerado como um f-string Python gigante. Dentro desse f-string
 
 ---
 
+### Melhoria — Controle de consumo de tokens no Groq
+
+**Problema:** o bot excedia o limite de tokens por minuto (TPM) da Groq em tres frentes distintas:
+
+1. **Modelo `gemma2-9b-it` com janela de 8.192 tokens:** o segundo modelo da lista de fallback tinha uma janela de contexto muito pequena. O system prompt sozinho ultrapassava 4.000 tokens, tornando o modelo inutil e causando erros de contexto excedido.
+
+2. **Historico ilimitado por contagem de mensagens:** o limite `MAX_HISTORY = 8` cortava o historico pelo numero de mensagens, sem considerar o tamanho real de cada uma. Uma conversa com respostas longas podia acumular 3.000+ tokens de historico e exceder o TPM disponivel.
+
+3. **System prompt com 4.161 tokens:** o prompt original consumia 83% do orcamento de tokens por requisicao antes mesmo de incluir o historico ou a mensagem do usuario.
+
+**Solucoes aplicadas:**
+
+**1 — Remocao do `gemma2-9b-it` da lista de fallback (`ai.py`):**
+
+```python
+# Antes
+MODELS = [
+    "llama-3.3-70b-versatile",
+    "gemma2-9b-it",          # janela de 8k — insuficiente para o prompt
+    "llama-3.1-8b-instant",
+]
+
+# Depois
+MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",  # 128k de contexto — seguro
+]
+```
+
+**2 — Trim de historico baseado em tokens (`ai.py`):**
+
+Substituido o corte fixo por uma funcao que estima os tokens de cada mensagem (tamanho do texto / 4) e remove pares de mensagens (user + assistant) do inicio do historico ate caber no orcamento disponivel:
+
+```python
+def _count_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+def _trim_history(history, system_tokens, max_total=5000):
+    budget = max_total - system_tokens
+    total = sum(_count_tokens(m["content"]) for m in history)
+    while total > budget and len(history) > 2:
+        removed = history.pop(0)
+        total -= _count_tokens(removed["content"])
+        if history and history[0]["role"] == "assistant":
+            removed = history.pop(0)
+            total -= _count_tokens(removed["content"])
+    return history
+```
+
+Conversas com mensagens longas truncam mais cedo; conversas com mensagens curtas mantem mais contexto. O historico nunca ultrapassa o orcamento calculado dinamicamente.
+
+**3 — Enxugamento do SYSTEM_PROMPT (reducao de 49%):**
+
+Removidos os elementos redundantes sem alterar nenhum comportamento:
+- Tres conversas de exemplo completas (Situacoes 1, 2, 3) que repetiam regras ja descritas
+- Dois exemplos inline do formato `[BREAK]` (redundantes com o template obrigatorio)
+- Aviso de nomes ficticios e separador `--- FIM DOS EXEMPLOS ---`
+- Regras duplicadas e conectivos verbosos
+
+| Metrica | Antes | Depois |
+|---|---|---|
+| Caracteres do system prompt | 16.647 | 8.475 |
+| Tokens estimados | 4.161 | 2.118 |
+| Budget para historico | 839 tokens | 2.882 tokens |
+| Reducao total | — | **-49%** |
+
+O custo por requisicao caiu de ~5.000 para ~2.500 tokens, dobrando a capacidade de historico e reduzindo a pressao sobre o limite de TPM do plano gratuito do Groq.
+
+---
+
 ## Proximos Passos
 
 - [ ] Deploy em servidor real (ex: Railway, Render) para nao depender do ngrok
