@@ -16,3 +16,7 @@ server/__pycache__/
 
 # Backups
 *.bak
+
+# Dados de runtime (gerados em produção)
+server/appointments.json
+server/pending.json

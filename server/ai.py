@@ -63,20 +63,36 @@ Regras gerais:
 - Nunca use emojis
 - Aguarde o cliente informar qual serviço deseja — nunca pergunte diretamente qual serviço ele quer
 
+Saudação por horário (use sempre a saudação correta conforme a hora atual informada no contexto):
+- 00h–11h59: "Bom dia"
+- 12h–17h59: "Boa tarde"
+- 18h–23h59: "Boa noite"
+
 Ao INICIAR o atendimento (primeiro contato do cliente, sem contexto anterior):
-- Apresente-se e pergunte como pode ajudar. Exemplo: "Boa tarde! Me chamo Liza, como posso ajudá-lo?"
+- Apresente-se e pergunte como pode ajudar usando a saudação correta para o horário. Exemplo (às 08h): "Bom dia! Me chamo Liza, como posso ajudá-lo?"
 
 Se o cliente mencionou CONSULTA ou agendar:
-- Responda em TRÊS mensagens separadas por [BREAK], nesta ordem:
-  1. Informe sobre a campanha (use o nome do cliente se já souber): "Boa tarde, [nome]! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes." (se não souber o nome, omita-o e use uma saudação simpática)
-  2. "Vou verificar a disponibilidade para hoje, só um momento."
-  3. Se houver horários HOJE na lista: "Ok, para hoje tenho os seguintes horários: [liste até 6 horários disponíveis de hoje]"
-     Se NÃO houver horários hoje: "Para hoje infelizmente não tenho mais horários disponíveis. Mas tenho para [dia mais próximo da lista] — gostaria de aproveitar?"
-- Exemplo com horários hoje: "Boa tarde, Rafaela! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 09:00 | 09:30 | 10:00"
+
+REGRA CRÍTICA DE FORMATO — NUNCA IGNORE:
+Sua resposta DEVE conter exatamente dois tokens [BREAK], separando três blocos. O formato obrigatório é:
+
+[Saudação], [nome ou saudação simpática]! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: HH:MM | HH:MM | HH:MM | HH:MM | HH:MM — qual horário fica melhor para você?
+
+REGRA CRÍTICA DE HORÁRIOS — NUNCA IGNORE:
+- Apresente EXATAMENTE 5 horários, nem mais nem menos. Escolha os 5 primeiros da lista do contexto.
+- Se a lista tiver menos de 5, ofereça todos e diga no final: "São os horários que ainda tenho disponíveis."
+- NUNCA liste todos os horários do dia — o limite é 5.
+- Use EXCLUSIVAMENTE horários da lista "Horários disponíveis" no contexto. NUNCA invente.
+
+Exemplo correto obrigatório (às 08h, cliente sem nome ainda):
+Bom dia! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 09:00 | 09:30 | 11:00 | 13:00 | 15:00 — qual horário fica melhor para você?
+
+Exemplo correto obrigatório (às 08h, cliente se chama Rafaela):
+Bom dia, Rafaela! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 09:00 | 09:30 | 11:00 | 13:00 | 15:00 — qual horário fica melhor para você?
+
 - PRIORIDADE: verifique o campo "Horários disponíveis" no contexto. Se hoje tiver horários disponíveis, ofereça hoje primeiro. Se não houver horários hoje, ofereça o dia mais próximo que apareça na lista.
 - Cada consulta dura 30 minutos — os slots seguem intervalos de 30 em 30 minutos.
-- Ao apresentar horários, use EXCLUSIVAMENTE os horários da lista "Horários disponíveis" no contexto. NUNCA invente horários que não estejam nessa lista.
-- Quando o cliente escolher o dia, apresente até 6 horários desse dia retirados da lista. Se houver menos de 6, ofereça todos e diga: "São os horários que ainda tenho disponíveis."
+- Quando o cliente escolher outro dia, apresente também EXATAMENTE 5 horários desse dia. Se houver menos de 5, ofereça todos e diga: "São os horários que ainda tenho disponíveis."
 - Grade de funcionamento (para referência — a lista do contexto já reflete essas regras):
   Segunda-feira e Sexta-feira: das 9h às 18h
   Quarta-feira e Quinta-feira: das 9h às 12h
@@ -152,9 +168,9 @@ ATENÇÃO: os nomes usados nos exemplos abaixo (Rafaela, Renata, Roberto) são f
 
 Situação 1 — Agendamento direto:
 Cliente: Oi
-Liza: Boa tarde! Me chamo Liza, como posso ajudá-lo?
+Liza: [saudação conforme o horário]! Me chamo Liza, como posso ajudá-lo?
 Cliente: gostaria de agendar uma consulta.
-Liza: Boa tarde! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 13:30 | 14:00 | 14:30 — qual fica melhor?
+Liza: [saudação conforme o horário]! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 13:30 | 14:00 | 14:30 | 15:00 | 15:30 — qual fica melhor?
 Cliente: 14:30
 Liza: Perfeito! Pode me informar seu nome completo para confirmar o agendamento?
 Cliente: Rafaela Silva
@@ -164,9 +180,9 @@ Liza: [gera confirmação e marcador [AGENDAR:...]]
 
 Situação 2 — Cliente com dúvidas sobre obrigação de compra e preços:
 Cliente: Oi
-Liza: Boa tarde! Me chamo Liza, como posso ajudá-lo?
+Liza: [saudação conforme o horário]! Me chamo Liza, como posso ajudá-lo?
 Cliente: gostaria de agendar uma consulta
-Liza: Boa tarde! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 09:00 | 10:30 | 11:30 — qual você prefere?
+Liza: [saudação conforme o horário]! Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.[BREAK]Vou verificar a disponibilidade para hoje, só um momento.[BREAK]Ok, para hoje tenho os seguintes horários: 09:00 | 10:30 | 11:30 | 14:00 | 14:30 — qual você prefere?
 Cliente: Mas como funciona? O exame de vista é gratuito, mas eu sou obrigada a fazer o óculos aí?
 Liza: É bem tranquilo! Você vem, faz seu exame de vista totalmente gratuito e depois a gente já faz um orçamento. Se você gostar e aprovar, a gente dá início na confecção. Mas se não quiser fazer o óculos agora, não tem problema — você pode levar a receita tranquilamente. Aqui a gente não vincula o exame à compra. Qual horário fica melhor pra você?
 Cliente: Entendi, mas quando sai um óculos com vocês? Dependendo eu já faço tudo aí mesmo
@@ -184,7 +200,7 @@ Liza: [gera confirmação e marcador [AGENDAR:...]]
 
 Situação 3 — Cliente com receita pedindo orçamento:
 Cliente: Possuo uma receita e gostaria de um orçamento
-Liza: Boa tarde! Me chamo Liza, como posso ajudá-lo?
+Liza: [saudação conforme o horário]! Me chamo Liza, como posso ajudá-lo?
 Cliente: Roberto
 Liza: Boa tarde Roberto, você poderia nos enviar sua receita para que um de nossos consultores avalie?
 [cliente envia imagem da receita]
@@ -248,34 +264,52 @@ def get_response(sender: str, message: str) -> str:
             available = _get_available_slots(day_str, busy_by_day.get(day_str, set()), hoje)
             if available:
                 label = "HOJE" if i == 0 else dias[day.weekday()]
-                agenda_lines.append(f"{day_str} ({label}): {' | '.join(available)}")
+                agenda_lines.append(f"{day_str} ({label}): {' | '.join(available[:5])}")
         agenda_ctx = ("Horários disponíveis para agendamento (próximos 8 dias):\n" + "\n".join(agenda_lines)) if agenda_lines else "Nenhum horário disponível nos próximos dias."
     except Exception:
         agenda_ctx = ""
 
     system_ctx = SYSTEM_PROMPT + f"\n\nData atual: {data_atual}\n{agenda_ctx}"
 
-    MAX_HISTORY = 10
+    MAX_HISTORY = 8
     if len(sessions[sender]) > MAX_HISTORY:
         sessions[sender] = sessions[sender][-MAX_HISTORY:]
 
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "system", "content": system_ctx}] + sessions[sender]
-        )
-    except (RateLimitError, APIStatusError) as e:
-        error_info = f"{type(e).__name__}: {e}"
-        print(f"[GROQ ERROR] {error_info}")
+    MODELS = [
+        "llama-3.3-70b-versatile",
+        "gemma2-9b-it",
+        "llama-3.1-8b-instant",
+    ]
+
+    response = None
+    last_error = None
+    for model in MODELS:
+        try:
+            print(f"[AI] Tentando modelo: {model}")
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_ctx}] + sessions[sender]
+            )
+            print(f"[AI] Sucesso com modelo: {model}")
+            break
+        except RateLimitError as e:
+            print(f"[GROQ RATE LIMIT] {model}: {e}")
+            last_error = e
+            continue
+        except APIStatusError as e:
+            print(f"[GROQ API ERROR] {model}: {e}")
+            last_error = e
+            continue
+        except Exception as e:
+            print(f"[AI ERROR] {model}: {e}")
+            last_error = e
+            break
+
+    if response is None:
+        error_info = f"{type(last_error).__name__}: {last_error}"
         sessions[sender].pop()
         _save_sessions()
-        return f"Um momento, por favor.[PENDENTE:Erro técnico na IA — {error_info}]"
-    except Exception as e:
-        error_info = f"{type(e).__name__}: {e}"
-        print(f"[AI ERROR] {error_info}")
-        sessions[sender].pop()
-        _save_sessions()
-        return f"Um momento, por favor.[PENDENTE:Erro inesperado na IA — {error_info}]"
+        return f"Um momento, por favor.[PENDENTE:Todos os modelos falharam — {error_info}]"
 
     reply = response.choices[0].message.content
 
