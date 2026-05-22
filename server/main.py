@@ -533,6 +533,11 @@ async def webhook(request: Request):
                         f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!"
                     )
                     await asyncio.to_thread(send_message, sender, confirmation)
+                    inject_assistant_message(
+                        sender,
+                        f"Agendamento de {name} em {date_str} às {time_str} já registrado no sistema. "
+                        f"Não vou gerar [AGENDAR:...] novamente nesta conversa."
+                    )
                 else:
                     clean = MARKER.sub("", part).strip()
                     if clean:

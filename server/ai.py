@@ -8,14 +8,14 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from appointments import load as load_appointments
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 USE_LOCAL = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
 
 if USE_LOCAL:
     from openai import OpenAI as _LocalClient
     client = _LocalClient(base_url="http://localhost:11434/v1", api_key="ollama")
-    print("[AI] Modo LOCAL — usando Ollama (llama3.1:8b)")
+    print("[AI] Modo LOCAL — usando Ollama (qwen2.5:7b)")
 else:
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     print("[AI] Modo PRODUÇÃO — usando Groq")
@@ -147,8 +147,9 @@ Se o cliente perguntar sobre PRODUTOS (óculos de sol, lentes de contato, armaç
 - Se já tiver consulta agendada: "Na sua consulta você já vai poder conferir tudo!"
 
 Após o agendamento CONFIRMADO ([AGENDAR:...] já gerado):
+- REGRA ABSOLUTA: se no histórico aparecer a frase "Agendamento de ... já registrado no sistema", o marcador [AGENDAR:...] JÁ FOI GERADO. NUNCA gere [AGENDAR:...] novamente nesta conversa, sob nenhuma circunstância.
 - Não proponha novo agendamento — o atendimento está concluído.
-- Responda dúvidas normalmente se o cliente continuar.
+- Responda dúvidas normalmente se o cliente continuar (endereço, preços, etc.).
 - Nunca trate o cliente confirmado como se ainda precisasse agendar.
 
 Se o cliente está respondendo a uma CAMPANHA enviada pelo operador:
@@ -233,9 +234,9 @@ def get_response(sender: str, message: str) -> str:
     sessions[sender] = _trim_history(sessions[sender], system_tokens)
 
     MODELS = (
-        ["llama3.1:8b"]
+        ["qwen2.5:7b"]
         if USE_LOCAL else
-        ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        ["llama-3.3-70b-versatile"]
     )
 
     response = None
@@ -245,7 +246,9 @@ def get_response(sender: str, message: str) -> str:
             print(f"[AI] Tentando modelo: {model}")
             response = client.chat.completions.create(
                 model=model,
-                messages=[{"role": "system", "content": system_ctx}] + sessions[sender]
+                messages=[{"role": "system", "content": system_ctx}] + sessions[sender],
+                temperature=0.3,
+                max_tokens=350,
             )
             print(f"[AI] Sucesso com modelo: {model}")
             break
@@ -264,7 +267,8 @@ def get_response(sender: str, message: str) -> str:
 
     if response is None:
         error_info = f"{type(last_error).__name__}: {last_error}"
-        sessions[sender].pop()
+        if sender in sessions:
+            sessions[sender].pop()
         _save_sessions()
         return f"Um momento, por favor.[PENDENTE:Todos os modelos falharam — {error_info}]"
 
@@ -274,10 +278,11 @@ def get_response(sender: str, message: str) -> str:
     reply_for_history = reply_for_history.replace("[BREAK]", " ")
     reply_for_history = re.sub(r'\s{2,}', ' ', reply_for_history).strip()
 
-    sessions[sender].append({
-        "role": "assistant",
-        "content": reply_for_history
-    })
+    if sender in sessions:
+        sessions[sender].append({
+            "role": "assistant",
+            "content": reply_for_history
+        })
 
     _save_sessions()
     return reply
