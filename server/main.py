@@ -1,3 +1,6 @@
+import sys
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 import asyncio
 import re
 import time
@@ -329,6 +332,7 @@ async def admin_close_protocol(request: Request):
                 print(f"[CALENDAR ERROR] {e}")
             break
     archive_appointment(phone, date, time)
+    reset_session(phone)
     return {"status": "ok"}
 
 
