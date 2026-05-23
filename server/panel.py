@@ -957,7 +957,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       </div>
       <div class="modal-footer">
         <button type="button" class="btn-secondary" onclick="closeCompleteModal()">Cancelar</button>
-        <button type="submit" class="btn-primary" id="btn-submit-complete">Concluir</button>
+        <button type="submit" class="btn-primary" id="btn-submit-complete">Encerrar</button>
       </div>
     </form>
   </div>
@@ -1371,32 +1371,29 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     e.preventDefault();
     if (!_completeRow) return;
     const targetRow = _completeRow;
+    const btn = document.getElementById("btn-submit-complete");
+    const notes = document.getElementById("complete-notes").value;
+    btn.disabled = true;
+    btn.textContent = "Encerrando...";
     try {{
-      const res = await fetch("/admin/completed", {{
+      const r1 = await fetch("/admin/completed", {{
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({{ phone: targetRow.dataset.phone, date: targetRow.dataset.date, time: targetRow.dataset.time, notes: notes }})
       }});
-      if (res.ok) {{
-        closeCompleteModal();
-        targetRow.dataset.status = "completed";
-        targetRow.querySelector(".badge").className = "badge completed";
-        targetRow.querySelector(".badge").textContent = "Concluído";
-        targetRow.querySelector(".actions-cell").innerHTML =
-          '<button class="action-btn close-protocol-btn" onclick="openConfirmCloseProtocol(this)" title="Encerrar protocolo"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg> Encerrar Protocolo</button>';
-        targetRow.querySelector(".faltam").textContent = "—";
-        targetRow.querySelector(".faltam").className = "faltam";
-        showToast("Atendimento concluído!");
-        applyFilter();
-      }} else {{
-        btn.disabled = false;
-        btn.textContent = "Concluir";
-        showToast("Erro ao concluir.", false);
-      }}
+      if (!r1.ok) throw new Error("completed");
+      await fetch("/admin/close_protocol", {{
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({{ phone: targetRow.dataset.phone, date: targetRow.dataset.date, time: targetRow.dataset.time }})
+      }});
+      closeCompleteModal();
+      targetRow.remove();
+      showToast("Atendimento encerrado!");
     }} catch (_) {{
       btn.disabled = false;
-      btn.textContent = "Concluir";
-      showToast("Erro de conexão.", false);
+      btn.textContent = "Encerrar";
+      showToast("Erro ao encerrar.", false);
     }}
   }}
 
@@ -1511,7 +1508,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         '<td>' + dtBr + '</td>' +
         '<td><div class="actions-cell">' +
           '<button class="action-btn reset-session-btn" onclick="resetSessionByPhone(' + phoneRaw + ',' + JSON.stringify(nameDisp) + ',this)" title="Resetar historico da IA"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Resetar IA</button>' +
-          '<button class="action-btn confirm-btn" onclick="concludePending(this)" title="Concluir"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Concluir</button>' +
+          '<button class="action-btn confirm-btn" onclick="concludePending(this)" title="Encerrar"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Encerrar</button>' +
         '</div></td>' +
         '</tr>';
     }}).join("");
@@ -1536,7 +1533,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       showToast("Pendencia concluida.");
     }} else {{
       btn.disabled = false;
-      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Concluir';
+      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Encerrar';
       showToast("Erro ao concluir.", false);
     }}
   }}

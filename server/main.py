@@ -378,7 +378,6 @@ async def admin_close_protocol(request: Request):
                 cancel_event(apt.get("event_id", ""))
             except Exception as e:
                 print(f"[CALENDAR ERROR] {e}")
-            break
     archive_appointment(phone, date, time)
     reset_session(phone)
     return {"status": "ok"}
