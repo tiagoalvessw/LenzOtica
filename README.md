@@ -488,7 +488,8 @@ Acessivel em `http://localhost:8000/painel`. O HTML do painel foi isolado em `se
 | `POST` | `/admin/reschedule` | Reabre agendamento com status no_show para reagendamento |
 | `POST` | `/admin/close_protocol` | Encerra protocolo: arquiva o registro + remove evento do Google Calendar |
 | `POST` | `/admin/reset_session` | Apaga o historico de conversa da IA para um numero especifico |
-| `POST` | `/admin/pending/dismiss` | Descarta uma pendencia da aba Pendente |
+| `POST` | `/admin/pending/dismiss` | Remove uma pendencia da aba Pendente |
+| `POST` | `/admin/completed_by_phone` | Marca o agendamento ativo de um telefone como concluido (sem exigir status `attended`) |
 
 **Design e layout:**
 - Fonte Inter (Google Fonts) para visual moderno e legivel
@@ -540,7 +541,7 @@ Apos cada acao do operador (cancelar, concluir, marcar comparecimento, etc.) a f
 - A IA pode gerar o marcador `[PENDENTE:observacao]` na resposta para sinalizar situacoes que precisam de atencao humana (ex: cliente indica um contato para ser abordado, situacao ambigua que a IA nao soube resolver).
 - O `main.py` detecta o marcador, registra o item em `pending.json` via `pending.py` e remove o marcador do texto antes de enviar ao cliente.
 - A aba Pendente exibe telefone, observacao e data/hora de cada item.
-- Acoes disponiveis: **Resetar IA** (reinicia conversa do numero) e **Descartar** (remove o item da lista).
+- Acoes disponiveis: **Resetar IA** (reinicia conversa do numero) e **Concluir** (remove o item da lista — contador decrementado imediatamente, sem modal).
 
 **Agendamento manual:**
 - Botao **+ Novo agendamento** no cabecalho da tabela
@@ -935,6 +936,23 @@ USE_LOCAL_LLM=true
 | Internet | Necessaria | Nao precisa |
 
 **Modelo de fallback adicionado:** `llama-3.1-8b-instant` reinserido na lista de fallback do modo Groq. Quando o `llama-3.3-70b-versatile` esgota o TPD diario, o servidor cai automaticamente para o modelo menor (500.000 tokens/dia de quota propria) sem interromper o atendimento.
+
+---
+
+### Melhoria — Aba Pendente: botao Concluir simplificado
+
+**Problema anterior:** a aba Pendente tinha dois botoes por item — **Finalizar** (arquivava o agendamento associado via `close_by_phone` + descartava a notificacao) e **Descartar** (abria modal de confirmacao e so removia a notificacao). O fluxo era confuso e o operador precisava de dois passos para uma acao simples.
+
+**Solucao:** os dois botoes foram substituidos por um unico botao verde **Concluir** que remove o item da tela imediatamente — sem modal, sem confirmacao, sem tocar no agendamento.
+
+**Como funciona:**
+- Clicar em **Concluir** chama `POST /admin/pending/dismiss` com o `id` do item.
+- O item e removido do array `PENDING_ITEMS` em memoria e a tabela e re-renderizada em JS (sem recarregar a pagina).
+- O contador da aba Pendente decrementado em tempo real: 24 → 23 → 22...
+
+**Detalhe tecnico:** o botao passa apenas `this` no `onclick` (sem argumentos de string), e a funcao JS `concludePending(btn)` localiza o item pelo indice da linha no DOM — evitando o bug classico de aspas duplas dentro de atributos HTML onclick ao usar `JSON.stringify`.
+
+Tambem foi adicionado o endpoint `POST /admin/completed_by_phone` ao `main.py` (marca o agendamento ativo de um telefone como `completed` sem exigir status `attended`). Nao e usado pelo painel atualmente, mas esta disponivel para uso futuro.
 
 ---
 

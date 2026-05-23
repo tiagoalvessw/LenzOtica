@@ -908,6 +908,22 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   </div>
 </div>
 
+<!-- Confirm Dismiss Pending Modal -->
+<div id="modal-confirm-dismiss" class="confirm-overlay">
+  <div class="confirm-backdrop" onclick="closeConfirmDismissModal()"></div>
+  <div class="confirm-box">
+    <div class="confirm-icon" style="background:#fff7ed;color:#d97706;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </div>
+    <h3 class="confirm-title">Descartar aviso?</h3>
+    <p class="confirm-msg">O aviso sera removido da lista. O agendamento e a sessao da IA nao serao alterados.</p>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+      <button class="btn-secondary" onclick="closeConfirmDismissModal()">Voltar</button>
+      <button class="btn-primary" onclick="confirmDoDismiss()" style="background:#d97706;">Sim, descartar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Confirm Close Protocol Modal -->
 <div id="modal-confirm-protocol" class="confirm-overlay">
   <div class="confirm-backdrop" onclick="closeConfirmProtocolModal()"></div>
@@ -1355,15 +1371,11 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     e.preventDefault();
     if (!_completeRow) return;
     const targetRow = _completeRow;
-    const btn = document.getElementById("btn-submit-complete");
-    btn.disabled = true;
-    btn.textContent = "Salvando...";
-    const notes = document.getElementById("complete-notes").value.trim();
     try {{
       const res = await fetch("/admin/completed", {{
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({{ phone: targetRow.dataset.phone, date: targetRow.dataset.date, time: targetRow.dataset.time, notes }})
+        body: JSON.stringify({{ phone: targetRow.dataset.phone, date: targetRow.dataset.date, time: targetRow.dataset.time, notes: notes }})
       }});
       if (res.ok) {{
         closeCompleteModal();
@@ -1499,12 +1511,83 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         '<td>' + dtBr + '</td>' +
         '<td><div class="actions-cell">' +
           '<button class="action-btn reset-session-btn" onclick="resetSessionByPhone(' + phoneRaw + ',' + JSON.stringify(nameDisp) + ',this)" title="Resetar historico da IA"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> Resetar IA</button>' +
-          '<button class="action-btn cancel-btn" onclick="dismissPending(' + idJson + ',this)">Descartar</button>' +
+          '<button class="action-btn confirm-btn" onclick="concludePending(this)" title="Concluir"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Concluir</button>' +
         '</div></td>' +
         '</tr>';
     }}).join("");
   }}
-  async function dismissPending(id, btn) {{
+  async function concludePending(btn) {{
+    const rows = document.querySelectorAll("#pending-tbody tr");
+    const row  = btn.closest("tr");
+    let idx = -1;
+    rows.forEach((r, i) => {{ if (r === row) idx = i; }});
+    if (idx < 0 || idx >= PENDING_ITEMS.length) return;
+    const item = PENDING_ITEMS[idx];
+    btn.disabled = true;
+    btn.innerHTML = "Concluindo...";
+    const res = await fetch("/admin/pending/dismiss", {{
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({{ id: item.id }})
+    }});
+    if (res.ok) {{
+      PENDING_ITEMS.splice(idx, 1);
+      renderPending();
+      showToast("Pendencia concluida.");
+    }} else {{
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Concluir';
+      showToast("Erro ao concluir.", false);
+    }}
+  }}
+  async function finalizePending(id, phone, btn) {{
+    btn.disabled = true;
+    btn.innerHTML = "Finalizando...";
+    try {{
+      await fetch("/admin/close_by_phone", {{
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({{ phone }})
+      }});
+    }} catch (_) {{}}
+    const res = await fetch("/admin/pending/dismiss", {{
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({{ id }})
+    }});
+    if (res.ok) {{
+      btn.closest("tr").remove();
+      const idx = PENDING_ITEMS.findIndex(p => p.id === id);
+      if (idx >= 0) PENDING_ITEMS.splice(idx, 1);
+      showToast("Chamado finalizado.");
+    }} else {{
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg> Finalizar';
+      showToast("Erro ao finalizar.", false);
+    }}
+  }}
+
+  let _pendingDismissId  = null;
+  let _pendingDismissBtn = null;
+  function dismissPending(id, btn) {{
+    _pendingDismissId  = id;
+    _pendingDismissBtn = btn;
+    document.getElementById("modal-confirm-dismiss").classList.add("open");
+    isPaused = true;
+    document.getElementById("cd").textContent = "Pausado";
+  }}
+  function closeConfirmDismissModal() {{
+    document.getElementById("modal-confirm-dismiss").classList.remove("open");
+    _pendingDismissId  = null;
+    _pendingDismissBtn = null;
+    isPaused = false;
+    secs = 30;
+  }}
+  async function confirmDoDismiss() {{
+    const id  = _pendingDismissId;
+    const btn = _pendingDismissBtn;
+    closeConfirmDismissModal();
+    if (!id) return;
     btn.disabled = true;
     btn.textContent = "Descartando...";
     const res = await fetch("/admin/pending/dismiss", {{
@@ -1516,7 +1599,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       btn.closest("tr").remove();
       const idx = PENDING_ITEMS.findIndex(p => p.id === id);
       if (idx >= 0) PENDING_ITEMS.splice(idx, 1);
-      showToast("Pendencia descartada.");
+      showToast("Aviso descartado.");
     }} else {{
       btn.disabled = false;
       btn.textContent = "Descartar";

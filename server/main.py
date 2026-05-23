@@ -4,14 +4,26 @@ sys.stderr.reconfigure(encoding="utf-8")
 import asyncio
 import re
 import time
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
+
+_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug.log")
+
+def _log(msg: str):
+    line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+    print(line, flush=True)
+    try:
+        with open(_LOG_PATH, "a", encoding="utf-8") as _f:
+            _f.write(line + "\n")
+    except Exception:
+        pass
+
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
 import requests
-import os
 from ai import get_response, inject_assistant_message, is_new_sender, reset_session
 from panel import render_panel
 from calendar_service import create_event, cancel_event
@@ -89,7 +101,7 @@ def send_message(to: str, text: str):
 
 
 def _typing_delay(text: str) -> float:
-    return min(0.4 + len(text) * 0.006, 1.5)
+    return min(1.5 + len(text) * 0.070, 5.0)
 
 
 def send_welcome(to: str):
@@ -186,6 +198,21 @@ app = FastAPI(lifespan=lifespan)
 
 
 _LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "imagens", "logo lenzótica.PNG")
+
+@app.get("/debug", response_class=HTMLResponse)
+async def debug_log():
+    try:
+        with open(_LOG_PATH, encoding="utf-8") as f:
+            lines = f.readlines()[-200:]
+    except FileNotFoundError:
+        lines = ["(nenhum log ainda)\n"]
+    content = "".join(lines)
+    return HTMLResponse(f"<html><body style='font-family:monospace;white-space:pre;font-size:13px;padding:16px'>{content}</body></html>")
+
+@app.post("/debug/clear")
+async def debug_clear():
+    open(_LOG_PATH, "w").close()
+    return {"status": "ok"}
 
 @app.get("/painel/logo")
 async def painel_logo():
@@ -320,6 +347,27 @@ async def admin_completed(request: Request):
     return {"status": "ok"}
 
 
+@app.post("/admin/completed_by_phone", dependencies=[Depends(verify_token)])
+async def admin_completed_by_phone(request: Request):
+    try:
+        body = await request.json()
+        phone = body["phone"]
+        notes = body.get("notes", "")
+        data = load_appointments()
+        for apt in data:
+            if apt["phone"] == phone and apt["status"] not in ("archived", "completed"):
+                apt["status"] = "completed"
+                apt["completed_at"] = datetime.now().isoformat()
+                apt["notes"] = notes
+                save_appointments(data)
+                _log(f"[ADMIN] completed_by_phone: {phone}")
+                break
+        return {"status": "ok"}
+    except Exception as e:
+        _log(f"[ADMIN ERROR] completed_by_phone: {e}")
+        raise
+
+
 @app.post("/admin/close_protocol", dependencies=[Depends(verify_token)])
 async def admin_close_protocol(request: Request):
     body = await request.json()
@@ -332,6 +380,27 @@ async def admin_close_protocol(request: Request):
                 print(f"[CALENDAR ERROR] {e}")
             break
     archive_appointment(phone, date, time)
+    reset_session(phone)
+    return {"status": "ok"}
+
+
+@app.post("/admin/close_by_phone", dependencies=[Depends(verify_token)])
+async def admin_close_by_phone(request: Request):
+    body = await request.json()
+    phone = body["phone"]
+    data = load_appointments()
+    changed = False
+    for apt in data:
+        if apt["phone"] == phone and apt["status"] != "archived":
+            try:
+                cancel_event(apt.get("event_id", ""))
+            except Exception as e:
+                print(f"[CALENDAR ERROR] close_by_phone: {e}")
+            apt["status"] = "archived"
+            apt["archived_at"] = datetime.now().isoformat()
+            changed = True
+    if changed:
+        save_appointments(data)
     reset_session(phone)
     return {"status": "ok"}
 
@@ -376,10 +445,13 @@ async def admin_reschedule(request: Request):
 
 
 @app.post("/webhook")
-async def webhook(request: Request):
+@app.post("/webhook/{event_path:path}")
+async def webhook(request: Request, event_path: str = ""):
     data = await request.json()
+    if "event" not in data and event_path:
+        data["event"] = event_path.replace("-", ".").replace("/", ".").lower()
     event = data.get("event", "")
-    print(f"[EVENTO] {event}")
+    _log(f"[EVENTO] {event}")
 
     if event == "qrcode.updated":
         base64_img = data.get("data", {}).get("qrcode", {}).get("base64", "")
@@ -427,11 +499,14 @@ async def webhook(request: Request):
                     return {"status": "ok"}
             return {"status": "ignored"}
 
-        print(f"Mensagem de {sender}: {text}")
+        _log(f"MSG de {sender}: {repr(text)}")
 
-        new_sender = is_new_sender(sender)
-        if new_sender:
-            send_welcome(sender)
+        if "/reset" in text.lower():
+            _log(f"[RESET] Acionado para {sender}")
+            reset_session(sender)
+            msg = "✅ Conversa reiniciada. Como posso ajudar?"
+            send_message(sender, msg)
+            inject_assistant_message(sender, msg)
             return {"status": "ok"}
 
         if has_pending_reminder(sender):
@@ -474,6 +549,16 @@ async def webhook(request: Request):
                 inject_assistant_message(sender, msg)
                 return {"status": "ok"}
 
+        text_clean = ''.join(c for c in text if c.isprintable()).strip().lower()
+        _log(f"[DEBUG] repr={repr(text)} | clean={repr(text_clean)}")
+        if text_clean == "/reset":
+            _log(f"[RESET-CLEAN] Acionado para {sender}")
+            reset_session(sender)
+            msg = "✅ Conversa reiniciada. Como posso ajudar?"
+            send_message(sender, msg)
+            inject_assistant_message(sender, msg)
+            return {"status": "ok"}
+
         mark_response_received(sender)
 
         try:
@@ -486,11 +571,11 @@ async def webhook(request: Request):
 
             parts = [p.strip() for p in reply.split("[BREAK]") if p.strip()]
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.8)
 
             for i, part in enumerate(parts):
                 if i > 0:
-                    await asyncio.sleep(_typing_delay(parts[i - 1]))
+                    await asyncio.sleep(_typing_delay(parts[i]))
 
                 match = MARKER.search(part)
                 if match:
@@ -526,10 +611,10 @@ async def webhook(request: Request):
 
                     confirmation = (
                         f"Agendamento confirmado! 📝\n"
-                        f"Tipo de agendamento: Consulta - Exame de vista\n"
-                        f"➡️ {date_display} às {time_display}\n\n"
-                        f"Cliente: {name}\n\n"
-                        f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)\n\n"
+                        f"Tipo de agendamento: Exame de vista\n"
+                        f"➡️ {date_display} às {time_display}\n"
+                        f"Cliente: {name}\n"
+                        f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)\n"
                         f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!"
                     )
                     await asyncio.to_thread(send_message, sender, confirmation)
