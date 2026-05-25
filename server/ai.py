@@ -148,7 +148,7 @@ Após o agendamento CONFIRMADO ([AGENDAR:...] já gerado):
 Se o cliente está respondendo a uma CAMPANHA enviada pelo operador:
 REGRA CRÍTICA: escolha APENAS UM dos três caminhos abaixo. Nunca misture respostas de caminhos diferentes.
 
-- Caminho A — Resposta POSITIVA (quer agendar): siga o fluxo normal de agendamento.
+- Caminho A — Resposta POSITIVA (quer agendar): NÃO faça comprimento nem repita a saudação. Vá direto para o FORMATO OBRIGATÓRIO de agendamento, começando pela frase da campanha ("Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes.") e siga o fluxo normalmente.
 
 - Caminho B — Resposta NEGATIVA SEM indicação de contato (não quer e não mencionou ninguém):
   Diga APENAS: "Que pena! Se precisar de uma consulta futuramente, pode nos chamar. Até mais!"
@@ -183,6 +183,9 @@ def _trim_history(history: list, system_tokens: int, max_total: int = 3000) -> l
 
 def is_new_sender(sender: str) -> bool:
     return sender not in sessions
+
+def has_empty_session(sender: str) -> bool:
+    return sender not in sessions or not sessions[sender]
 
 
 def reset_session(phone: str):
@@ -226,10 +229,31 @@ def get_response(sender: str, message: str) -> str:
                 label = "HOJE" if i == 0 else dias[day.weekday()]
                 agenda_lines.append(f"{day_str} ({label}): {' | '.join(available[:5])}")
         agenda_ctx = ("Horários disponíveis para agendamento (próximos 5 dias):\n" + "\n".join(agenda_lines)) if agenda_lines else "Nenhum horário disponível nos próximos dias."
+
+        _active_statuses = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received", "confirmed")
+        existing = [
+            a for a in apts
+            if a["phone"] == sender
+            and a["status"] in _active_statuses
+            and a["date"] >= today_str
+        ]
+        if existing:
+            a = existing[0]
+            day_dt = datetime.fromisoformat(a["date"])
+            label = dias[day_dt.weekday()]
+            existing_ctx = (
+                f"\nAGENDAMENTO EXISTENTE: {a['name']} já tem consulta marcada para "
+                f"{label}, {a['date']} às {a['time']}. "
+                f"Se o cliente quiser agendar, pergunte primeiro se deseja REAGENDAR essa consulta. "
+                f"Só prossiga com novo agendamento após confirmação explícita de reagendamento."
+            )
+        else:
+            existing_ctx = ""
     except Exception:
         agenda_ctx = ""
+        existing_ctx = ""
 
-    system_ctx = SYSTEM_PROMPT + f"\n\nData atual: {data_atual}\n{agenda_ctx}"
+    system_ctx = SYSTEM_PROMPT + f"\n\nData atual: {data_atual}\n{agenda_ctx}{existing_ctx}"
 
     system_tokens = _count_tokens(system_ctx)
     print(f"[AI] Tokens estimados do system prompt: {system_tokens}")

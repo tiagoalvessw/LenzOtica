@@ -24,7 +24,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
 import requests
-from ai import get_response, inject_assistant_message, is_new_sender, reset_session
+from ai import get_response, inject_assistant_message, is_new_sender, has_empty_session, reset_session
 from panel import render_panel
 from calendar_service import create_event, cancel_event
 from appointments import (
@@ -77,6 +77,19 @@ DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-
 
 _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "presente", "certo", "tá", "ta", "claro"}
 _NEGATIVE = {"não", "nao", "n", "cancelar", "reagendar", "remarcar", "não posso", "nao posso"}
+
+_CAMPAIGN_MSG = (
+    "Que ótimo! Estamos com uma semana especial de exame de vista gratuito para nossos clientes! "
+    "Você teria interesse em agendar uma consulta?"
+)
+
+def _is_campaign_response(text: str) -> bool:
+    t = text.strip().lower()
+    if "interesse" in t:
+        return True
+    keywords = ("quero agendar", "quero marcar", "sim quero", "sim, quero",
+                "pode ser", "gostaria", "quero sim", "tenho interesse")
+    return any(k in t for k in keywords)
 
 def _classify_reminder_response(text: str) -> str:
     normalized = text.lower().strip().rstrip(".")
@@ -560,6 +573,10 @@ async def webhook(request: Request, event_path: str = ""):
 
         mark_response_received(sender)
 
+        if has_empty_session(sender) and _is_campaign_response(text_clean):
+            inject_assistant_message(sender, _CAMPAIGN_MSG)
+            _log(f"[CAMPANHA] Contexto injetado para {sender}")
+
         try:
             reply = await asyncio.to_thread(get_response, sender, text)
 
@@ -608,15 +625,16 @@ async def webhook(request: Request, event_path: str = ""):
                     date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
                     time_display = time_str.replace(":", "h")
 
-                    confirmation = (
-                        f"Agendamento confirmado! 📝\n"
-                        f"Tipo de agendamento: Exame de vista\n"
-                        f"➡️ {date_display} às {time_display}\n"
-                        f"Cliente: {name}\n"
-                        f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)\n"
-                        f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!"
-                    )
-                    await asyncio.to_thread(send_message, sender, confirmation)
+                    confirmation_parts = [
+                        f"Agendamento confirmado! 📝\nTipo de agendamento: Exame de vista\n➡️ {date_display} às {time_display}\nCliente: {name}",
+                        f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)",
+                        f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!",
+                    ]
+                    for i, part in enumerate(confirmation_parts):
+                        if i > 0:
+                            await asyncio.sleep(_typing_delay(part))
+                        await asyncio.to_thread(send_message, sender, part)
+                    confirmation = "\n".join(confirmation_parts)
                     inject_assistant_message(
                         sender,
                         f"Agendamento de {name} em {date_str} às {time_str} já registrado no sistema. "

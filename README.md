@@ -958,7 +958,81 @@ Tambem foi adicionado o endpoint `POST /admin/completed_by_phone` ao `main.py` (
 
 ## Proximos Passos
 
-- [ ] Deploy em servidor real (ex: Railway, Render) para nao depender do ngrok
+### Acesso externo ao painel (custo zero)
+
+**Objetivo:** expor o painel administrativo `http://localhost:8000/painel` para acesso fora da rede local sem custo.
+
+**Contexto:** o ngrok gratuito ja e usado para o webhook do WhatsApp. O plano gratuito do ngrok permite apenas **1 tunnel ativo** simultaneamente — nao da para manter webhook + painel ao mesmo tempo sem pagar.
+
+---
+
+#### Fase 1 — Auditoria (antes de qualquer exposicao)
+
+- [ ] Confirmar se todos os endpoints `/admin/*` exigem autenticacao (header `X-Admin-Token`)
+- [ ] Confirmar se o painel HTML faz todas as chamadas com esse header
+- [ ] Verificar se o ngrok atual ja expoe o painel (a URL aponta para a porta 8000 inteira)
+- [ ] Identificar dados sensiveis visiveis no painel (telefones, nomes, etc.)
+
+---
+
+#### Fase 2 — Escolha da solucao gratuita
+
+| Opcao | URL estavel | Abre porta no roteador | Para quem |
+|---|---|---|---|
+| **Tailscale** | IP privado fixo | Nao | So voce (1-2 dispositivos) |
+| **Cloudflare Tunnel** | Sim (HTTPS) | Nao | Compartilhar com a otica |
+| **LocalTunnel** | Parcial | Nao | Testes rapidos |
+| **Port forward + DuckDNS** | Sim (dinamico) | **Sim** (risco maior) | Evitar |
+
+- [ ] Decidir entre Tailscale (privado) ou Cloudflare Tunnel (publico com URL estavel)
+
+---
+
+#### Fase 3 — Hardening de seguranca (obrigatorio antes de expor)
+
+- [ ] **Autenticacao no painel HTML:** verificar que o JavaScript do painel envia `X-Admin-Token` em todas as chamadas `fetch` para `/admin/*`
+- [ ] **Autenticacao na rota GET `/painel`:** o endpoint que serve o HTML tambem deve exigir o token (ou HTTP Basic Auth) — sem isso, qualquer pessoa com a URL ve o painel
+- [ ] **HTTPS:** garantido automaticamente pelo Tailscale ou Cloudflare Tunnel
+- [ ] **Rate limiting nos POSTs:** evitar que alguem com a URL cancele agendamentos em massa (biblioteca `slowapi` ou contador simples em memoria)
+- [ ] **Mascarar telefones no HTML** se forem exibidos completos (ex: `+55 48 9****-1234`)
+
+> Nivel de risco sem autenticacao + URL publica: **critico**. Nunca expor sem a Fase 3 concluida.
+
+---
+
+#### Fase 4 — Implementacao
+
+**Rota A — Tailscale (acesso privado, sem URL publica):**
+1. Instalar Tailscale no Windows (app gratuito em tailscale.com)
+2. Instalar no celular ou outro dispositivo que precisar de acesso
+3. Login com conta Google — a rede privada e criada automaticamente
+4. Painel disponivel via `http://100.x.x.x:8000/painel` (IP Tailscale)
+5. Ninguem fora da sua rede Tailscale acessa
+
+**Rota B — Cloudflare Tunnel (URL publica e estavel, HTTPS automatico):**
+1. Criar conta gratuita em cloudflare.com
+2. Instalar `cloudflared` no Windows
+3. Autenticar: `cloudflared tunnel login`
+4. Criar tunnel: `cloudflared tunnel create lenzotica`
+5. Configurar para apontar para `localhost:8000`
+6. Iniciar: `cloudflared tunnel run lenzotica`
+7. URL gerada: `https://lenzotica.cfargotunnel.com` (ou dominio proprio)
+
+> Com Cloudflare Tunnel, o webhook do WhatsApp pode continuar usando o ngrok **ou** ser migrado para o mesmo tunnel (rota `/webhook` no mesmo dominio).
+
+---
+
+#### Fase 5 — Testes e validacao
+
+- [ ] Acessar o painel de um dispositivo externo (celular em 4G, fora do Wi-Fi local)
+- [ ] Tentar acessar `GET /painel` sem autenticacao — deve retornar 401 ou redirecionar para login
+- [ ] Tentar `POST /admin/cancel` sem o token — deve retornar 401
+- [ ] Confirmar que o webhook do WhatsApp continua recebendo mensagens normalmente
+- [ ] Monitorar o console do servidor por alguns dias para checar acessos suspeitos
+
+---
+
+- [ ] Deploy em servidor real (ex: Railway, Render) para remover a dependencia do ngrok completamente
 
 ---
 
