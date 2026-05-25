@@ -628,7 +628,7 @@ async def webhook(request: Request, event_path: str = ""):
                     confirmation_parts = [
                         f"Agendamento confirmado! 📝\nTipo de agendamento: Exame de vista\n➡️ {date_display} às {time_display}\nCliente: {name}",
                         f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)",
-                        f"📣 1hr antes da consulta iremos enviar uma mensagem de confirmação, caso precise reagendar, avisar com antecedência!!!",
+                        f"📣 Caso precise reagendar, avisar com antecedência!!!",
                     ]
                     for i, part in enumerate(confirmation_parts):
                         if i > 0:
