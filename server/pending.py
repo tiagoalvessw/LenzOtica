@@ -1,35 +1,30 @@
-import json
-import os
-from datetime import datetime
-
-PENDING_FILE = os.path.join(os.path.dirname(__file__), "pending.json")
+import db
 
 
-def load():
-    if not os.path.exists(PENDING_FILE):
-        return []
-    with open(PENDING_FILE, encoding="utf-8") as f:
-        return json.load(f)
+def load() -> list[dict]:
+    rows = db.fetchall(
+        "SELECT id, phone, description, created_at FROM pending_items WHERE dismissed = false ORDER BY created_at DESC"
+    )
+    return [
+        {
+            "id": str(row["id"]),
+            "phone": row["phone"],
+            "note": row["description"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        for row in rows
+    ]
 
 
-def save(data):
-    with open(PENDING_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def add_pending(phone: str, note: str) -> None:
+    db.execute(
+        "INSERT INTO pending_items (phone, description) VALUES (%s, %s)",
+        (phone, note),
+    )
 
 
-def add_pending(phone: str, note: str):
-    data = load()
-    item_id = datetime.now().isoformat()
-    data.append({
-        "id": item_id,
-        "phone": phone,
-        "note": note,
-        "created_at": item_id,
-    })
-    save(data)
-
-
-def dismiss_pending(item_id: str):
-    data = load()
-    data = [p for p in data if p.get("id") != item_id]
-    save(data)
+def dismiss_pending(item_id: str) -> None:
+    db.execute(
+        "UPDATE pending_items SET dismissed = true, dismissed_at = now() WHERE id = %s",
+        (int(item_id),),
+    )

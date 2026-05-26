@@ -1,196 +1,175 @@
-import json
-import os
 from datetime import datetime
+import db
 
-APPOINTMENTS_FILE = os.path.join(os.path.dirname(__file__), "appointments.json")
 
-def load():
-    if not os.path.exists(APPOINTMENTS_FILE):
-        return []
-    with open(APPOINTMENTS_FILE, encoding="utf-8") as f:
-        return json.load(f)
+def _row(row: dict) -> dict:
+    if row is None:
+        return None
+    r = dict(row)
+    r["date"] = str(r["date"])        # date  → "YYYY-MM-DD"
+    r["time"] = str(r["time"])[:5]    # time  → "HH:MM"
+    for f in ("created_at", "confirmed_at", "attended_at", "completed_at", "archived_at"):
+        if r.get(f) is not None:
+            r[f] = r[f].isoformat()
+    return r
 
-def save(data):
-    with open(APPOINTMENTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
 
-def add_appointment(phone: str, name: str, date_str: str, time_str: str, event_id: str = ""):
-    data = load()
-    data.append({
-        "phone": phone,
-        "name": name,
-        "date": date_str,
-        "time": time_str,
-        "status": "scheduled",
-        "event_id": event_id,
-        "created_at": datetime.now().isoformat(),
-        "confirmed_at": None,
-        "attended_at": None,
-        "completed_at": None,
-        "notes": "",
-    })
-    save(data)
+def load() -> list[dict]:
+    return [_row(r) for r in db.fetchall("SELECT * FROM appointments ORDER BY date, time")]
 
-def get_appointments_for_day_reminder():
-    data = load()
-    now = datetime.now()
-    result = []
+
+def save(data: list[dict]) -> None:
     for apt in data:
-        if apt["status"] == "scheduled":
-            try:
-                apt_dt = datetime.fromisoformat(f"{apt['date']}T{apt['time']}:00")
-                diff = (apt_dt - now).total_seconds() / 60
-                if 23 * 60 - 5 <= diff <= 24 * 60 + 5:
-                    result.append(apt)
-            except Exception:
-                pass
-    return result
+        if "id" not in apt:
+            continue
+        db.execute(
+            """
+            UPDATE appointments SET
+                phone = %s, name = %s, date = %s, time = %s,
+                status = %s, event_id = %s, notes = %s,
+                confirmed_at = %s, attended_at = %s, completed_at = %s, archived_at = %s
+            WHERE id = %s
+            """,
+            (
+                apt["phone"], apt["name"], apt["date"], apt["time"],
+                apt["status"], apt.get("event_id", ""), apt.get("notes", ""),
+                apt.get("confirmed_at"), apt.get("attended_at"),
+                apt.get("completed_at"), apt.get("archived_at"),
+                apt["id"],
+            ),
+        )
 
-def mark_day_reminder_sent(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] == "scheduled":
-            apt["status"] = "day_reminder_sent"
-    save(data)
 
-def get_appointments_for_reminder():
-    data = load()
-    now = datetime.now()
-    result = []
-    for apt in data:
-        if apt["status"] in ("scheduled", "day_reminder_sent"):
-            try:
-                apt_dt = datetime.fromisoformat(f"{apt['date']}T{apt['time']}:00")
-                diff = (apt_dt - now).total_seconds() / 60
-                if 55 <= diff <= 65:
-                    result.append(apt)
-            except Exception:
-                pass
-    return result
+def add_appointment(phone: str, name: str, date_str: str, time_str: str, event_id: str = "") -> None:
+    db.execute(
+        "INSERT INTO appointments (phone, name, date, time, status, event_id) VALUES (%s, %s, %s, %s, 'scheduled', %s)",
+        (phone, name, date_str, time_str, event_id),
+    )
 
-def get_appointments_to_cancel():
-    data = load()
-    now = datetime.now()
-    result = []
-    for apt in data:
-        if apt["status"] == "reminder_sent":
-            try:
-                apt_dt = datetime.fromisoformat(f"{apt['date']}T{apt['time']}:00")
-                if now >= apt_dt:
-                    result.append(apt)
-            except Exception:
-                pass
-    return result
 
-def mark_reminder_sent(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] in ("scheduled", "day_reminder_sent"):
-            apt["status"] = "reminder_sent"
-    save(data)
+def get_appointments_for_day_reminder() -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT * FROM appointments
+        WHERE status = 'scheduled'
+          AND (date + time)::timestamp
+              BETWEEN (now() + interval '22 hours 55 minutes')::timestamp
+                  AND (now() + interval '24 hours 5 minutes')::timestamp
+        """
+    )
+    return [_row(r) for r in rows]
 
-def mark_response_received(phone: str):
-    data = load()
-    changed = False
-    for apt in data:
-        if apt["phone"] == phone and apt["status"] == "reminder_sent":
-            apt["status"] = "response_received"
-            changed = True
-    if changed:
-        save(data)
 
-def cancel_appointment(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str:
-            apt["status"] = "cancelled"
-    save(data)
+def mark_day_reminder_sent(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'day_reminder_sent' WHERE phone = %s AND date = %s AND time = %s AND status = 'scheduled'",
+        (phone, date_str, time_str),
+    )
+
+
+def get_appointments_for_reminder() -> list[dict]:
+    rows = db.fetchall(
+        """
+        SELECT * FROM appointments
+        WHERE status IN ('scheduled', 'day_reminder_sent')
+          AND (date + time)::timestamp
+              BETWEEN (now() + interval '55 minutes')::timestamp
+                  AND (now() + interval '65 minutes')::timestamp
+        """
+    )
+    return [_row(r) for r in rows]
+
+
+def mark_reminder_sent(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'reminder_sent' WHERE phone = %s AND date = %s AND time = %s AND status IN ('scheduled', 'day_reminder_sent')",
+        (phone, date_str, time_str),
+    )
+
+
+def get_appointments_to_cancel() -> list[dict]:
+    rows = db.fetchall(
+        "SELECT * FROM appointments WHERE status = 'reminder_sent' AND (date + time)::timestamp <= now()::timestamp"
+    )
+    return [_row(r) for r in rows]
+
+
+def mark_response_received(phone: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'response_received' WHERE phone = %s AND status = 'reminder_sent'",
+        (phone,),
+    )
+
+
+def cancel_appointment(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'cancelled' WHERE phone = %s AND date = %s AND time = %s",
+        (phone, date_str, time_str),
+    )
+
 
 def has_pending_reminder(phone: str) -> bool:
-    data = load()
-    return any(apt["phone"] == phone and apt["status"] == "reminder_sent" for apt in data)
-
-def confirm_appointment(phone: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["status"] == "reminder_sent":
-            apt["status"] = "confirmed"
-    save(data)
-
-def cancel_pending_reminders(phone: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["status"] == "reminder_sent":
-            apt["status"] = "cancelled"
-    save(data)
+    return (db.fetchval("SELECT count(*) FROM appointments WHERE phone = %s AND status = 'reminder_sent'", (phone,)) or 0) > 0
 
 
-def mark_confirmed_at(phone: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["status"] == "confirmed":
-            apt.setdefault("confirmed_at", datetime.now().isoformat())
-    save(data)
+def confirm_appointment(phone: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'confirmed', confirmed_at = now() WHERE phone = %s AND status = 'reminder_sent'",
+        (phone,),
+    )
 
 
-def mark_attended(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] == "confirmed":
-            apt["status"] = "attended"
-            apt["attended_at"] = datetime.now().isoformat()
-    save(data)
+def cancel_pending_reminders(phone: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'cancelled' WHERE phone = %s AND status = 'reminder_sent'",
+        (phone,),
+    )
 
 
-def mark_completed(phone: str, date_str: str, time_str: str, notes: str = ""):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] == "attended":
-            apt["status"] = "completed"
-            apt["completed_at"] = datetime.now().isoformat()
-            apt["notes"] = notes
-    save(data)
+def mark_confirmed_at(phone: str) -> None:
+    db.execute(
+        "UPDATE appointments SET confirmed_at = now() WHERE phone = %s AND status = 'confirmed' AND confirmed_at IS NULL",
+        (phone,),
+    )
 
 
-def mark_no_show(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] == "confirmed":
-            apt["status"] = "no_show"
-    save(data)
+def mark_attended(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'attended', attended_at = now() WHERE phone = %s AND date = %s AND time = %s AND status = 'confirmed'",
+        (phone, date_str, time_str),
+    )
 
 
-def get_appointments_for_no_show():
-    """Retorna confirmados cujo horário passou há 30+ minutos sem comparecimento marcado."""
-    data = load()
-    now = datetime.now()
-    result = []
-    for apt in data:
-        if apt["status"] == "confirmed":
-            try:
-                apt_dt = datetime.fromisoformat(f"{apt['date']}T{apt['time']}:00")
-                if (now - apt_dt).total_seconds() >= 30 * 60:
-                    result.append(apt)
-            except Exception:
-                pass
-    return result
+def mark_completed(phone: str, date_str: str, time_str: str, notes: str = "") -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'completed', completed_at = now(), notes = %s WHERE phone = %s AND date = %s AND time = %s AND status = 'attended'",
+        (notes, phone, date_str, time_str),
+    )
 
 
-def reschedule_no_show(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] == "no_show":
-            apt["status"] = "scheduled"
-            apt["attended_at"] = None
-            apt["completed_at"] = None
-            apt["notes"] = ""
-    save(data)
+def mark_no_show(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'no_show' WHERE phone = %s AND date = %s AND time = %s AND status = 'confirmed'",
+        (phone, date_str, time_str),
+    )
 
 
-def archive_appointment(phone: str, date_str: str, time_str: str):
-    data = load()
-    for apt in data:
-        if apt["phone"] == phone and apt["date"] == date_str and apt["time"] == time_str and apt["status"] in ("completed", "cancelled", "no_show", "attended", "confirmed"):
-            apt["status"] = "archived"
-            apt["archived_at"] = datetime.now().isoformat()
-    save(data)
+def get_appointments_for_no_show() -> list[dict]:
+    rows = db.fetchall(
+        "SELECT * FROM appointments WHERE status = 'confirmed' AND (date + time)::timestamp <= (now() - interval '30 minutes')::timestamp"
+    )
+    return [_row(r) for r in rows]
+
+
+def reschedule_no_show(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'scheduled', attended_at = NULL, completed_at = NULL, notes = '' WHERE phone = %s AND date = %s AND time = %s AND status = 'no_show'",
+        (phone, date_str, time_str),
+    )
+
+
+def archive_appointment(phone: str, date_str: str, time_str: str) -> None:
+    db.execute(
+        "UPDATE appointments SET status = 'archived', archived_at = now() WHERE phone = %s AND date = %s AND time = %s AND status IN ('completed', 'cancelled', 'no_show', 'attended', 'confirmed')",
+        (phone, date_str, time_str),
+    )

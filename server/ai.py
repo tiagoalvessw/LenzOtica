@@ -1,11 +1,11 @@
 from groq import Groq, RateLimitError, APIStatusError
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-import json
 import os
 import re
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
+import db
 from appointments import load as load_appointments
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
@@ -20,17 +20,29 @@ else:
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     print("[AI] Modo PRODUÇÃO — usando Groq")
 
-SESSIONS_FILE = os.path.join(os.path.dirname(__file__), "sessions.json")
+_dirty: set[str] = set()
+
 
 def _load_sessions() -> dict:
-    if os.path.exists(SESSIONS_FILE):
-        with open(SESSIONS_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+    rows = db.fetchall(
+        "SELECT phone, role, content FROM conversation_history ORDER BY phone, created_at ASC"
+    )
+    result: dict = {}
+    for row in rows:
+        result.setdefault(row["phone"], []).append({"role": row["role"], "content": row["content"]})
+    return result
+
 
 def _save_sessions():
-    with open(SESSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump(sessions, f, ensure_ascii=False, indent=2)
+    for phone in list(_dirty):
+        messages = sessions.get(phone, [])
+        db.execute("DELETE FROM conversation_history WHERE phone = %s", (phone,))
+        for msg in messages:
+            db.execute(
+                "INSERT INTO conversation_history (phone, role, content, token_count) VALUES (%s, %s, %s, %s)",
+                (phone, msg["role"], msg["content"], max(1, len(msg["content"]) // 4)),
+            )
+    _dirty.clear()
 
 _BUSINESS_HOURS = {
     0: ("09:00", "18:00"),  # Segunda
@@ -191,22 +203,23 @@ def has_empty_session(sender: str) -> bool:
 def reset_session(phone: str):
     if phone in sessions:
         del sessions[phone]
-        _save_sessions()
+    _dirty.discard(phone)
+    db.execute("DELETE FROM conversation_history WHERE phone = %s", (phone,))
+
 
 def inject_assistant_message(sender: str, message: str):
     if sender not in sessions:
         sessions[sender] = []
     sessions[sender].append({"role": "assistant", "content": message})
+    _dirty.add(sender)
     _save_sessions()
 
 def get_response(sender: str, message: str) -> str:
     if sender not in sessions:
         sessions[sender] = []
 
-    sessions[sender].append({
-        "role": "user",
-        "content": message
-    })
+    sessions[sender].append({"role": "user", "content": message})
+    _dirty.add(sender)
 
     dias = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
     meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
