@@ -31,6 +31,7 @@ import prompt_builder as pb
 from ai import get_response, inject_assistant_message, is_new_sender, has_empty_session, reset_session
 from panel import render_panel
 from calendar_service import create_event, cancel_event
+from sync_calendar import sync_calendar
 from appointments import (
     load as load_appointments,
     add_appointment, get_appointments_for_reminder,
@@ -83,7 +84,7 @@ _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "present
 _NEGATIVE = {"não", "nao", "n", "cancelar", "reagendar", "remarcar", "não posso", "nao posso"}
 
 _CAMPAIGN_MSG = (
-    "Que ótimo! Estamos com uma semana especial de exame de vista gratuito para nossos clientes! "
+    "Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes! "
     "Você teria interesse em agendar uma consulta?"
 )
 
@@ -119,12 +120,6 @@ def send_message(to: str, text: str):
 
 def _typing_delay(text: str) -> float:
     return min(1.5 + len(text) * 0.070, 5.0)
-
-
-def send_welcome(to: str):
-    lisa_intro = "Olá! Sou a Liza, atendente da LenzÓtica. Como posso ajudar você hoje? Qual o seu nome, por favor?"
-    send_message(to, lisa_intro)
-    inject_assistant_message(to, lisa_intro)
 
 
 async def check_day_reminders():
@@ -188,13 +183,27 @@ async def check_no_shows():
         print(f"[NO-SHOW] {apt['phone']} — {apt['date']} {apt['time']}")
 
 
+_sync_counter = 0
+
+
 async def scheduler_loop():
+    global _sync_counter
     while True:
         try:
             await check_day_reminders()
             await check_reminders()
             await check_cancellations()
             await check_no_shows()
+
+            # Sync do Google Calendar a cada 30 ciclos (~30 min)
+            _sync_counter += 1
+            if _sync_counter >= 30:
+                _sync_counter = 0
+                try:
+                    await asyncio.to_thread(sync_calendar)
+                    print("[CALENDAR SYNC] Limpeza automática concluída")
+                except Exception as e:
+                    print(f"[CALENDAR SYNC ERROR] {e}")
         except Exception as e:
             print(f"[SCHEDULER ERROR] {e}")
         await asyncio.sleep(60)
@@ -353,14 +362,30 @@ async def admin_edit(request: Request):
 @app.post("/admin/attended", dependencies=[Depends(verify_token)])
 async def admin_attended(request: Request):
     body = await request.json()
-    mark_attended(body["phone"], body["date"], body["time"])
+    phone, date, time = body["phone"], body["date"], body["time"]
+    for apt in load_appointments():
+        if apt["phone"] == phone and apt["date"] == date and apt["time"] == time:
+            try:
+                cancel_event(apt.get("event_id", ""))
+            except Exception as e:
+                print(f"[CALENDAR ERROR] attended: {e}")
+            break
+    mark_attended(phone, date, time)
     return {"status": "ok"}
 
 
 @app.post("/admin/completed", dependencies=[Depends(verify_token)])
 async def admin_completed(request: Request):
     body = await request.json()
-    mark_completed(body["phone"], body["date"], body["time"], body.get("notes", ""))
+    phone, date, time = body["phone"], body["date"], body["time"]
+    for apt in load_appointments():
+        if apt["phone"] == phone and apt["date"] == date and apt["time"] == time:
+            try:
+                cancel_event(apt.get("event_id", ""))
+            except Exception as e:
+                print(f"[CALENDAR ERROR] completed: {e}")
+            break
+    mark_completed(phone, date, time, body.get("notes", ""))
     return {"status": "ok"}
 
 
@@ -373,6 +398,10 @@ async def admin_completed_by_phone(request: Request):
         data = load_appointments()
         for apt in data:
             if apt["phone"] == phone and apt["status"] not in ("archived", "completed"):
+                try:
+                    cancel_event(apt.get("event_id", ""))
+                except Exception as e:
+                    _log(f"[CALENDAR ERROR] completed_by_phone: {e}")
                 apt["status"] = "completed"
                 apt["completed_at"] = datetime.now().isoformat()
                 apt["notes"] = notes

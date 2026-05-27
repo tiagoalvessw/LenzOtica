@@ -7,13 +7,19 @@ from calendar_service import _get_service
 from appointments import load as load_appointments
 
 
+ACTIVE_STATUSES = {
+    "scheduled", "day_reminder_sent", "reminder_sent",
+    "response_received", "confirmed",
+}
+
+
 def sync_calendar():
-    # Coleta event_ids válidos (agendamentos visíveis no painel)
+    # Coleta event_ids válidos — apenas consultas ativas (não realizadas/canceladas)
     appointments = load_appointments()
     valid_ids = {
         a["event_id"]
         for a in appointments
-        if a.get("status") != "archived" and a.get("event_id")
+        if a.get("status") in ACTIVE_STATUSES and a.get("event_id")
     }
     print(f"Event IDs válidos no painel: {len(valid_ids)}")
 
