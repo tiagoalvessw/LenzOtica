@@ -9,6 +9,10 @@ server/sessions.json.bak
 # Logs
 server/out.log
 server/err.log
+server/debug.log
+server/server.log
+server/server_err.log
+server/uvicorn.log
 
 # Cache Python
 server/__pycache__/

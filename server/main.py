@@ -24,6 +24,10 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
 import requests
+import db
+import context as ctx_mod
+import rag as rag_mod
+import prompt_builder as pb
 from ai import get_response, inject_assistant_message, is_new_sender, has_empty_session, reset_session
 from panel import render_panel
 from calendar_service import create_event, cancel_event
@@ -455,6 +459,287 @@ async def admin_reschedule(request: Request):
     save_appointments(data)
     return {"status": "ok"}
 
+
+# ─── Business Hours ───────────────────────────────────────────────────────────
+
+@app.get("/admin/business-hours", dependencies=[Depends(verify_token)])
+async def get_business_hours():
+    rows = db.fetchall(
+        "SELECT day_of_week, is_open, is_flexible, open_time, close_time FROM business_hours ORDER BY day_of_week"
+    )
+    return [
+        {
+            "day_of_week": r["day_of_week"],
+            "is_open": r["is_open"],
+            "is_flexible": r["is_flexible"],
+            "open_time": str(r["open_time"])[:5] if r["open_time"] else None,
+            "close_time": str(r["close_time"])[:5] if r["close_time"] else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/admin/business-hours", dependencies=[Depends(verify_token)])
+async def save_business_hours(request: Request):
+    rows = await request.json()
+    for row in rows:
+        day = row["day_of_week"]
+        db.execute(
+            """
+            UPDATE business_hours
+            SET is_open=%s, is_flexible=%s, open_time=%s, close_time=%s
+            WHERE day_of_week=%s
+            """,
+            (
+                row.get("is_open", False),
+                row.get("is_flexible", False),
+                row.get("open_time") or None,
+                row.get("close_time") or None,
+                day,
+            ),
+        )
+    return {"status": "ok"}
+
+
+# ─── System Prompt ─────────────────────────────────────────────────────────────
+
+@app.get("/admin/system-prompt", dependencies=[Depends(verify_token)])
+async def get_system_prompt():
+    return {"prompt": ctx_mod.get_system_prompt()}
+
+
+@app.post("/admin/system-prompt", dependencies=[Depends(verify_token)])
+async def save_system_prompt(request: Request):
+    body = await request.json()
+    prompt = body.get("prompt", "").strip()
+    db.execute(
+        "UPDATE rag_config SET system_prompt=%s WHERE is_active=true", (prompt,)
+    )
+    return {"status": "ok"}
+
+
+# ─── RAG Config ────────────────────────────────────────────────────────────────
+
+@app.get("/admin/rag/config", dependencies=[Depends(verify_token)])
+async def get_rag_config():
+    cfg = rag_mod.get_config()
+    return {k: v for k, v in cfg.items() if k != "system_prompt"}
+
+
+@app.post("/admin/rag/config", dependencies=[Depends(verify_token)])
+async def save_rag_config(request: Request):
+    body = await request.json()
+    fields = []
+    values = []
+    allowed = {
+        "enabled": bool,
+        "top_k": int,
+        "min_similarity": float,
+        "max_context_tokens": int,
+        "chunk_size": int,
+        "chunk_overlap": int,
+    }
+    for key, cast in allowed.items():
+        if key in body:
+            fields.append(f"{key}=%s")
+            values.append(cast(body[key]))
+    if not fields:
+        return {"status": "nothing_to_update"}
+    values.append(True)  # WHERE is_active=true
+    db.execute(
+        f"UPDATE rag_config SET {', '.join(fields)} WHERE is_active=%s", tuple(values)
+    )
+    return {"status": "ok"}
+
+
+# ─── RAG Documents ─────────────────────────────────────────────────────────────
+
+@app.get("/admin/rag/documents", dependencies=[Depends(verify_token)])
+async def list_rag_documents():
+    rows = db.fetchall(
+        """
+        SELECT d.id, d.title, d.source_type, d.is_active, d.created_at,
+               COUNT(c.id) AS chunk_count
+        FROM rag_documents d
+        LEFT JOIN rag_chunks c ON c.document_id = d.id
+        GROUP BY d.id
+        ORDER BY d.created_at DESC
+        """
+    )
+    return [
+        {
+            "id": r["id"],
+            "title": r["title"],
+            "source_type": r["source_type"],
+            "is_active": r["is_active"],
+            "chunk_count": r["chunk_count"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/admin/rag/documents", dependencies=[Depends(verify_token)])
+async def create_rag_document(request: Request):
+    body = await request.json()
+    title = body.get("title", "").strip()
+    source_type = body.get("source_type", "manual")
+    content = body.get("content", "").strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="title e content sao obrigatorios")
+    doc_id = db.fetchval(
+        "INSERT INTO rag_documents (title, source_type, content) VALUES (%s,%s,%s) RETURNING id",
+        (title, source_type, content),
+    )
+    try:
+        chunk_count = rag_mod.index_document(doc_id)
+    except Exception as e:
+        _log(f"[RAG] Erro ao indexar documento {doc_id}: {e}")
+        chunk_count = 0
+    return {"status": "ok", "doc_id": doc_id, "chunk_count": chunk_count}
+
+
+@app.patch("/admin/rag/documents/{doc_id}/toggle", dependencies=[Depends(verify_token)])
+async def toggle_rag_document(doc_id: int, request: Request):
+    body = await request.json()
+    is_active = bool(body.get("is_active", True))
+    db.execute(
+        "UPDATE rag_documents SET is_active=%s WHERE id=%s", (is_active, doc_id)
+    )
+    return {"status": "ok"}
+
+
+@app.delete("/admin/rag/documents/{doc_id}", dependencies=[Depends(verify_token)])
+async def delete_rag_document(doc_id: int):
+    db.execute("DELETE FROM rag_documents WHERE id=%s", (doc_id,))
+    return {"status": "ok"}
+
+
+# ─── RAG Logs ──────────────────────────────────────────────────────────────────
+
+@app.get("/admin/rag/logs", dependencies=[Depends(verify_token)])
+async def get_rag_logs():
+    rows = db.fetchall(
+        """
+        SELECT phone, query_text, chunks_returned, top_similarity, latency_ms, created_at
+        FROM rag_query_log
+        ORDER BY created_at DESC
+        LIMIT 50
+        """
+    )
+    return [
+        {
+            "phone": r["phone"],
+            "query_text": r["query_text"],
+            "chunks_returned": r["chunks_returned"],
+            "top_similarity": float(r["top_similarity"]) if r["top_similarity"] is not None else None,
+            "latency_ms": r["latency_ms"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+# ─── Bot Config ────────────────────────────────────────────────────────────────
+
+@app.get("/admin/bot-config", dependencies=[Depends(verify_token)])
+async def get_bot_config():
+    row = db.fetchone("SELECT * FROM bot_config LIMIT 1")
+    if not row:
+        return {}
+    d = dict(row)
+    d.pop("id", None)
+    d.pop("updated_at", None)
+    return d
+
+
+@app.post("/admin/bot-config", dependencies=[Depends(verify_token)])
+async def save_bot_config(request: Request):
+    body = await request.json()
+    allowed = [
+        "store_name", "store_address", "store_phone", "store_services",
+        "store_notes", "bot_name", "bot_tone", "bot_personality",
+        "bot_greeting", "bot_extra_rules",
+    ]
+    fields = []
+    values = []
+    for key in allowed:
+        if key in body:
+            fields.append(f"{key}=%s")
+            values.append(str(body[key]))
+    if not fields:
+        return {"status": "nothing_to_update"}
+    fields.append("updated_at=now()")
+    db.execute(f"UPDATE bot_config SET {', '.join(fields)}", tuple(values))
+    pb.build_and_save_prompt()
+    return {"status": "ok"}
+
+
+# ─── FAQ ───────────────────────────────────────────────────────────────────────
+
+@app.get("/admin/faq", dependencies=[Depends(verify_token)])
+async def list_faq():
+    rows = db.fetchall(
+        "SELECT id, question, answer, is_active, sort_order FROM faq_items ORDER BY sort_order, id"
+    )
+    return [dict(r) for r in rows]
+
+
+@app.post("/admin/faq", dependencies=[Depends(verify_token)])
+async def create_faq(request: Request):
+    body = await request.json()
+    question = body.get("question", "").strip()
+    answer = body.get("answer", "").strip()
+    sort_order = int(body.get("sort_order", 0))
+    if not question or not answer:
+        raise HTTPException(status_code=400, detail="question e answer são obrigatórios")
+    faq_id = db.fetchval(
+        "INSERT INTO faq_items (question, answer, sort_order) VALUES (%s,%s,%s) RETURNING id",
+        (question, answer, sort_order),
+    )
+    pb.build_and_save_prompt()
+    return {"status": "ok", "id": faq_id}
+
+
+@app.put("/admin/faq/{faq_id}", dependencies=[Depends(verify_token)])
+async def update_faq(faq_id: int, request: Request):
+    body = await request.json()
+    question = body.get("question", "").strip()
+    answer = body.get("answer", "").strip()
+    sort_order = int(body.get("sort_order", 0))
+    if not question or not answer:
+        raise HTTPException(status_code=400, detail="question e answer são obrigatórios")
+    db.execute(
+        "UPDATE faq_items SET question=%s, answer=%s, sort_order=%s WHERE id=%s",
+        (question, answer, sort_order, faq_id),
+    )
+    pb.build_and_save_prompt()
+    return {"status": "ok"}
+
+
+@app.patch("/admin/faq/{faq_id}/toggle", dependencies=[Depends(verify_token)])
+async def toggle_faq(faq_id: int, request: Request):
+    body = await request.json()
+    is_active = bool(body.get("is_active", True))
+    db.execute("UPDATE faq_items SET is_active=%s WHERE id=%s", (is_active, faq_id))
+    pb.build_and_save_prompt()
+    return {"status": "ok"}
+
+
+@app.delete("/admin/faq/{faq_id}", dependencies=[Depends(verify_token)])
+async def delete_faq(faq_id: int):
+    db.execute("DELETE FROM faq_items WHERE id=%s", (faq_id,))
+    pb.build_and_save_prompt()
+    return {"status": "ok"}
+
+
+@app.post("/admin/build-prompt", dependencies=[Depends(verify_token)])
+async def build_prompt_endpoint():
+    prompt = pb.build_and_save_prompt()
+    return {"status": "ok", "length": len(prompt)}
+
+
+# ─── Webhook ───────────────────────────────────────────────────────────────────
 
 @app.post("/webhook")
 @app.post("/webhook/{event_path:path}")
