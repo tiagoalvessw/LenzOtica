@@ -36,7 +36,7 @@ def _faltam(date_str: str, time_str: str, status: str):
         return "—", ""
 
 
-def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: str = "", pending_items: list = None, clients_count: int = 0) -> str:
+def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: str = "", pending_items: list = None, clients_count: int = 0, overdue_count: int = 0) -> str:
     today = datetime.now().date().isoformat()
     rows = ""
 
@@ -129,6 +129,35 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
             f'<span class="chart-lbl">{lbl}</span>'
             f'</div>'
         )
+
+    # ── Dashboard v2 ───────────────────────────────────────────────────────────
+    chart30_counts: list = []
+    chart30_dates:  list = []
+    for _i in range(29, -1, -1):
+        _target = today_date - timedelta(days=_i)
+        _cnt = sum(1 for a in agendamentos if a.get("date") == _target.isoformat() and a.get("status") != "cancelled")
+        chart30_counts.append(_cnt)
+        chart30_dates.append(_target.isoformat())
+    chart30_json  = json.dumps(chart30_counts)
+    chart30d_json = json.dumps(chart30_dates)
+    _chart_avg    = round(sum(chart30_counts) / 30, 1) if chart30_counts else 0
+
+    _this_start = (today_date - timedelta(days=6)).isoformat()
+    _last_start = (today_date - timedelta(days=13)).isoformat()
+    _last_end   = (today_date - timedelta(days=7)).isoformat()
+    trend_confirmados = (
+        sum(1 for a in agendamentos if a.get("status") in ("confirmed", "attended", "completed") and _this_start <= a.get("date", "") <= today)
+        - sum(1 for a in agendamentos if a.get("status") in ("confirmed", "attended", "completed") and _last_start <= a.get("date", "") <= _last_end)
+    )
+    trend_cancelados = (
+        sum(1 for a in agendamentos if a.get("status") in ("cancelled", "no_show") and _this_start <= a.get("date", "") <= today)
+        - sum(1 for a in agendamentos if a.get("status") in ("cancelled", "no_show") and _last_start <= a.get("date", "") <= _last_end)
+    )
+    hoje_confirmados  = sum(1 for a in agendamentos if a.get("date") == today and a.get("status") in ("confirmed", "attended"))
+    hoje_aguardando   = sum(1 for a in agendamentos if a.get("date") == today and a.get("status") in ("scheduled", "day_reminder_sent", "reminder_sent", "response_received"))
+    hoje_sem_lembrete = sum(1 for a in agendamentos if a.get("date") == today and a.get("status") in ("scheduled", "day_reminder_sent"))
+    ai_errors_n       = sum(1 for p in (pending_items or []) if any(k in p.get("note", "") for k in ("Rate limit", "Erro no modelo")))
+    pendente_badge_html = '<div class="metric-badge">!</div>' if pendente_tab > 0 else ""
 
     seen_phones_ia: set = set()
     ia_rows = ""
@@ -273,25 +302,73 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
           <div class="page-title">Dashboard</div>
           <div class="page-subtitle">Visao geral dos atendimentos</div>
         </div>
-        <button class="btn-new" onclick="navTo('agendamentos');setTimeout(openModal,80)">
+        <button class="btn-new" onclick="navToTab('agendamentos','day');setTimeout(openModal,160)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Novo agendamento
         </button>
       </div>
 
+      <div id="dash-alerts"></div>
+
       <div class="metrics-grid">
-        <div class="metric-card mc-blue"><div class="metric-num">{hoje_dia_count}</div><div class="metric-lbl">Atendimentos Hoje</div></div>
-        <div class="metric-card mc-green"><div class="metric-num">{confirmados_tab}</div><div class="metric-lbl">Confirmados</div></div>
-        <div class="metric-card mc-red"><div class="metric-num">{cancelados_tab}</div><div class="metric-lbl">Cancelados</div></div>
-        <div class="metric-card mc-cyan"><div class="metric-num">{concluidos_tab}</div><div class="metric-lbl">Concluidos</div></div>
-        <div class="metric-card mc-amber"><div class="metric-num">{pendente_tab}</div><div class="metric-lbl">Pendencias</div></div>
-        <div class="metric-card mc-purple"><div class="metric-num">{taxa_comp}%</div><div class="metric-lbl">Taxa Comparecimento</div></div>
+        <div class="metric-card mc-blue" onclick="navToTab('agendamentos','day')" title="Ver atendimentos de hoje">
+          {pendente_badge_html}
+          <div class="metric-num">{hoje_dia_count}</div>
+          <div class="metric-lbl">Atendimentos Hoje</div>
+          <div class="metric-sub" id="m-sub-hoje"></div>
+          <div class="metric-click-hint">&#8599; Ver agendamentos</div>
+        </div>
+        <div class="metric-card mc-green" onclick="navToTab('agendamentos','confirmed')" title="Ver confirmados">
+          <div class="metric-num">{confirmados_tab}</div>
+          <div class="metric-lbl">Confirmados</div>
+          <div class="metric-sub" id="m-sub-confirmados"></div>
+          <div class="metric-click-hint">&#8599; Ver confirmados</div>
+        </div>
+        <div class="metric-card mc-red" onclick="navToTab('agendamentos','cancelled')" title="Ver cancelados">
+          <div class="metric-num">{cancelados_tab}</div>
+          <div class="metric-lbl">Cancelados</div>
+          <div class="metric-sub" id="m-sub-cancelados"></div>
+          <div class="metric-click-hint">&#8599; Ver cancelados</div>
+        </div>
+        <div class="metric-card mc-cyan" onclick="navToTab('agendamentos','completed')" title="Ver concluidos">
+          <div class="metric-num">{concluidos_tab}</div>
+          <div class="metric-lbl">Concluidos</div>
+          <div class="metric-sub" id="m-sub-concluidos"></div>
+          <div class="metric-click-hint">&#8599; Ver concluidos</div>
+        </div>
+        <div class="metric-card mc-amber" onclick="navToTab('agendamentos','pending')" title="Ver pendencias">
+          <div class="metric-num">{pendente_tab}</div>
+          <div class="metric-lbl">Pendencias</div>
+          <div class="metric-sub" id="m-sub-pendente"></div>
+          <div class="metric-click-hint">&#8599; Ver pendencias</div>
+        </div>
+        <div class="metric-card mc-purple">
+          <div class="metric-num">{taxa_comp}%</div>
+          <div class="metric-lbl">Taxa Comparecimento</div>
+          <div class="metric-sub" id="m-sub-taxa"></div>
+        </div>
       </div>
 
       <div class="dash-row">
         <div class="dash-card">
-          <div class="dash-card-hdr">Agendamentos — ultimos 7 dias</div>
-          <div class="dash-card-body"><div class="bar-chart">{chart_bars}</div></div>
+          <div class="dash-card-hdr">
+            Agendamentos &mdash; historico
+            <div class="chart-controls">
+              <button class="chart-range-btn active" data-days="7" onclick="setChartRange(this)">7d</button>
+              <button class="chart-range-btn" data-days="14" onclick="setChartRange(this)">14d</button>
+              <button class="chart-range-btn" data-days="30" onclick="setChartRange(this)">30d</button>
+            </div>
+          </div>
+          <div class="dash-card-body">
+            <div style="position:relative">
+              <div class="chart-avg-line" id="chart-avg-line"><span class="chart-avg-label" id="chart-avg-label"></span></div>
+              <div class="bar-chart-v2" id="bar-chart-v2"></div>
+            </div>
+            <div class="chart-legend">
+              <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#22c55e"></span>Acima da media</span>
+              <span class="chart-legend-item"><span class="chart-legend-dot" style="background:#f59e0b"></span>Abaixo da media</span>
+            </div>
+          </div>
         </div>
         <div class="dash-card">
           <div class="dash-card-hdr">Distribuicao por status</div>
@@ -1535,11 +1612,21 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   const TODAY_STR   = "{today}";
   const PENDING_ITEMS = {pending_json};
   window._PANEL_DATA = {{
-    confirmados: {confirmados_tab},
-    cancelados:  {cancelados_tab},
-    concluidos:  {concluidos_tab},
-    hoje:        {hoje_dia_count},
-    pendente:    {pendente_tab},
+    confirmados:       {confirmados_tab},
+    cancelados:        {cancelados_tab},
+    concluidos:        {concluidos_tab},
+    hoje:              {hoje_dia_count},
+    pendente:          {pendente_tab},
+    hoje_confirmados:  {hoje_confirmados},
+    hoje_aguardando:   {hoje_aguardando},
+    hoje_sem_lembrete: {hoje_sem_lembrete},
+    trend_confirmados: {trend_confirmados},
+    trend_cancelados:  {trend_cancelados},
+    ai_errors_n:       {ai_errors_n},
+    overdue_n:         {overdue_count},
+    chart30:           {chart30_json},
+    chart30d:          {chart30d_json},
+    chart_avg:         {_chart_avg},
   }};
 </script>
 <script src="/static/panel.js"></script>

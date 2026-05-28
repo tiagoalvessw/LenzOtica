@@ -46,6 +46,8 @@
   }
   function renderUpcoming() {
     const SC = {scheduled:"#d97706",day_reminder_sent:"#2563eb",reminder_sent:"#7c3aed",response_received:"#7c3aed",confirmed:"#059669",attended:"#0f766e"};
+    const SL = {scheduled:"Aguardando",day_reminder_sent:"Lembrete 1d",reminder_sent:"Lembrete 1h",response_received:"Respondeu",confirmed:"Confirmado",attended:"Compareceu"};
+    const SK = {confirmed:"act-st-confirmed",attended:"act-st-confirmed",reminder_sent:"act-st-reminder",response_received:"act-st-reminder",scheduled:"act-st-scheduled",day_reminder_sent:"act-st-scheduled"};
     const rows = Array.from(document.querySelectorAll("#tbody tr[data-status]"))
       .filter(r => !["cancelled","no_show","completed"].includes(r.dataset.status))
       .sort((a,b) => (a.dataset.date+a.dataset.time).localeCompare(b.dataset.date+b.dataset.time))
@@ -53,17 +55,23 @@
     const el = document.getElementById("upcoming-list");
     if (!el) return;
     if (!rows.length) {
-      el.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--muted);font-size:.84rem;">Nenhum agendamento pendente.</div>';
+      el.innerHTML = '<div class="upcoming-empty">Nenhum agendamento pendente.</div>';
       return;
     }
     el.innerHTML = rows.map(r => {
       const color = SC[r.dataset.status]||"#94a3b8";
+      const stLbl = SL[r.dataset.status]||r.dataset.status;
+      const stCls = SK[r.dataset.status]||"act-st-scheduled";
       const name  = r.querySelector(".client-name")?.textContent||"—";
       const phone = r.querySelector(".phone-num")?.textContent||"—";
-      const badge = r.querySelector(".badge")?.textContent||"";
-      const dp = r.dataset.date?r.dataset.date.split("-"):[];
-      const ds = dp.length===3?dp[2]+"/"+dp[1]+"/"+dp[0]:r.dataset.date;
-      return '<div class="activity-item"><div class="act-dot" style="background:'+color+'"></div><div class="act-info"><div class="act-name">'+name+'</div><div class="act-detail">'+phone+' &middot; '+badge+'</div></div><div class="act-time">'+ds+' '+r.dataset.time+'</div></div>';
+      const dp    = r.dataset.date?r.dataset.date.split("-"):[];
+      const ds    = dp.length===3?dp[2]+"/"+dp[1]+"/"+dp[0]:r.dataset.date;
+      return '<div class="activity-item" onclick="navToTab(\'agendamentos\',\'day\')">'
+        +'<div class="act-dot" style="background:'+color+'"></div>'
+        +'<div class="act-info"><div class="act-name">'+name+'</div><div class="act-detail">'+phone+'</div></div>'
+        +'<span class="act-status '+stCls+'">'+stLbl+'</span>'
+        +'<div class="act-time">'+ds+' '+r.dataset.time+'</div>'
+        +'</div>';
     }).join("");
   }
 
@@ -2138,9 +2146,130 @@
     }
   }
 
+  /* ── Dashboard v2 ─────────────────────────────────────────────────────────── */
+
+  function navToTab(page, filter) {
+    navTo(page);
+    if (filter) setTimeout(() => setTabByFilter(filter), 100);
+  }
+
+  function setTabByFilter(f) {
+    const tab = document.querySelector('.tab-nav .tab[data-f="' + f + '"]');
+    if (tab) setTab(tab);
+  }
+
+  function renderDashboard() {
+    renderAlerts();
+    renderMetricSubs();
+    renderChartV2(7);
+    renderStatusBreakdown();
+    renderUpcoming();
+  }
+
+  function renderAlerts() {
+    const el = document.getElementById("dash-alerts");
+    if (!el) return;
+    const alerts = [];
+    if (_PANEL_DATA.pendente > 0) {
+      const n = _PANEL_DATA.pendente;
+      const txt = "<strong>" + n + " pend\xeancia" + (n !== 1 ? "s" : "") + "</strong> aguardando"
+        + (_PANEL_DATA.ai_errors_n > 0 ? " — inclui erros de IA" : "");
+      alerts.push({type:"danger", icon:"🔴", txt, action:"navToTab('agendamentos','pending')", link:"Ver pend\xeancias"});
+    }
+    if (_PANEL_DATA.overdue_n > 0) {
+      const n = _PANEL_DATA.overdue_n;
+      alerts.push({type:"warn", icon:"⚠️",
+        txt:"<strong>" + n + " cliente" + (n !== 1 ? "s" : "") + "</strong> com retorno atrasado",
+        action:"navTo('clientes')", link:"Ver clientes"});
+    }
+    if (_PANEL_DATA.hoje_sem_lembrete > 0) {
+      const n = _PANEL_DATA.hoje_sem_lembrete;
+      alerts.push({type:"info", icon:"🔔",
+        txt:"<strong>" + n + " agendamento" + (n !== 1 ? "s" : "") + "</strong> de hoje sem lembrete enviado",
+        action:"navToTab('agendamentos','day')", link:"Enviar lembrete"});
+    }
+    el.innerHTML = alerts.map(a =>
+      '<div class="dash-alert-item dash-alert-' + a.type + '" onclick="' + a.action + '">'
+      + '<span class="dash-alert-icon">' + a.icon + '</span>'
+      + '<span class="dash-alert-txt">' + a.txt + '</span>'
+      + '<span class="dash-alert-link">' + a.link + ' →</span>'
+      + '</div>'
+    ).join("");
+  }
+
+  function renderMetricSubs() {
+    const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+    const trend = (n, goodDir) => {
+      if (n === 0) return '<span class="metric-trend trend-neutral">= est\xe1vel</span>';
+      const good = goodDir === "up" ? n > 0 : n < 0;
+      const cls  = good ? "trend-up" : "trend-down";
+      return '<span class="metric-trend ' + cls + '">' + (n > 0 ? "↑ +" : "↓ ") + n + " vs semana passada</span>";
+    };
+    const hc = _PANEL_DATA.hoje_confirmados, ha = _PANEL_DATA.hoje_aguardando;
+    const parts = [];
+    if (hc > 0) parts.push(hc + " confirmado" + (hc !== 1 ? "s" : ""));
+    if (ha > 0) parts.push(ha + " aguardando");
+    set("m-sub-hoje", parts.join(" \xb7 "));
+    set("m-sub-confirmados", trend(_PANEL_DATA.trend_confirmados, "up"));
+    set("m-sub-cancelados",  trend(_PANEL_DATA.trend_cancelados,  "down"));
+    set("m-sub-concluidos",  "este m\xeas");
+    if (_PANEL_DATA.pendente > 0) {
+      set("m-sub-pendente", _PANEL_DATA.ai_errors_n > 0
+        ? '<span style="color:#b45309;font-size:.7rem">Inclui erros de IA</span>'
+        : '<span style="color:#b45309;font-size:.7rem">A\xe7\xe3o necess\xe1ria</span>');
+    }
+  }
+
+  function setChartRange(btn) {
+    document.querySelectorAll(".chart-range-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    renderChartV2(parseInt(btn.dataset.days));
+  }
+
+  function renderChartV2(days) {
+    const allCounts = _PANEL_DATA.chart30 || [];
+    const allDates  = _PANEL_DATA.chart30d || [];
+    const data  = allCounts.slice(-days);
+    const dates = allDates.slice(-days);
+    if (!data.length) return;
+    const total = data.reduce((a, b) => a + b, 0);
+    const avg   = total / data.length;
+    const max   = Math.max(...data, 1);
+    const avgPct = (avg / max) * 100;
+    const avgLine  = document.getElementById("chart-avg-line");
+    const avgLabel = document.getElementById("chart-avg-label");
+    if (avgLine)  avgLine.style.bottom  = "calc(" + avgPct + "% + 20px)";
+    if (avgLabel) avgLabel.textContent  = "m\xe9dia " + avg.toFixed(1);
+    const el = document.getElementById("bar-chart-v2");
+    if (!el) return;
+    const DAY_NAMES = ["Dom","Seg","Ter","Qua","Qui","Sex","S\xe1b"];
+    el.innerHTML = data.map((cnt, i) => {
+      const dateStr = dates[i] || "";
+      const isToday = dateStr === TODAY_STR;
+      const dp = dateStr ? dateStr.split("-") : [];
+      let lbl;
+      if (days <= 7) {
+        lbl = DAY_NAMES[new Date(dateStr + "T12:00").getDay()] || dateStr;
+      } else {
+        lbl = dp.length === 3 ? dp[2] + "/" + dp[1] : dateStr;
+      }
+      const pct      = Math.max((cnt / max) * 100, cnt > 0 ? 6 : 4);
+      const colorCls = cnt === 0 ? "chart-bar-zero" : (cnt >= avg ? "chart-bar-above" : "chart-bar-below");
+      const todayCls = isToday ? " chart-bar-today" : "";
+      return '<div class="chart-col-v2">'
+        + '<div class="chart-val-v2">' + (cnt || "") + '</div>'
+        + '<div class="chart-col-inner">'
+        + '<div class="chart-bar-v2 ' + colorCls + todayCls + '" style="height:' + pct + '%">'
+        + '<div class="chart-tooltip-v2">' + lbl + (isToday ? " (hoje)" : "") + " — " + cnt + " agendamento" + (cnt !== 1 ? "s" : "") + '</div>'
+        + '</div></div>'
+        + '<span class="chart-lbl-v2">' + (isToday ? "<strong>" + lbl + "</strong>" : lbl) + '</span>'
+        + '</div>';
+    }).join("");
+  }
+
   /* Init */
   (function(){
     const lp=localStorage.getItem("lastPage")||"dashboard";navTo(lp);
     if(localStorage.getItem("sbCollapsed")==="1")document.getElementById("sidebar").classList.add("collapsed");
-    renderStatusBreakdown();renderUpcoming();
+    renderDashboard();
   })();

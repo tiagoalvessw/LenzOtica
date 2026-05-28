@@ -476,7 +476,7 @@ async def painel():
     )
     pending_items = load_pending()
     clients_stats = clients_mod.get_return_stats()
-    return render_panel(agendamentos, CALENDAR_EMBED_URL, ADMIN_TOKEN, pending_items, clients_count=clients_stats.get("total", 0))
+    return render_panel(agendamentos, CALENDAR_EMBED_URL, ADMIN_TOKEN, pending_items, clients_count=clients_stats.get("total", 0), overdue_count=clients_stats.get("overdue", 0))
 
 
 @app.post("/admin/cancel", dependencies=[Depends(verify_token)])
