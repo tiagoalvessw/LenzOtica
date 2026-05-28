@@ -6,21 +6,53 @@ import re
 import time
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
-_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug.log")
+_LOG_PATH      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug.log")
+_LOG_MAX_LINES = 5000
+_log_write_cnt = 0
 
-def _log(msg: str):
-    line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+# Palavras-chave para auto-detecção de nível
+_KW_ERROR = ("ERROR", "EXCEPTION", "TRACEBACK", "FAILED", " ERRO ", "[ERRO]")
+_KW_WARN  = ("WARN", "WARNING", "TIMEOUT", "AVISO")
+
+def _log(msg: str, level: str = ""):
+    global _log_write_cnt
+    if not level:
+        mu = msg.upper()
+        if any(k in mu for k in _KW_ERROR):
+            level = "ERROR"
+        elif any(k in mu for k in _KW_WARN):
+            level = "WARN"
+        else:
+            level = "INFO"
+    ts   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] [{level}] {msg}"
     print(line, flush=True)
     try:
         with open(_LOG_PATH, "a", encoding="utf-8") as _f:
             _f.write(line + "\n")
+        _log_write_cnt += 1
+        if _log_write_cnt % 100 == 0:
+            _trim_log()
     except Exception:
         pass
 
-from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, FileResponse
+def _trim_log():
+    """Mantém o arquivo dentro de _LOG_MAX_LINES linhas (descarta as mais antigas)."""
+    try:
+        with open(_LOG_PATH, "r", encoding="utf-8", errors="replace") as _f:
+            lines = _f.readlines()
+        if len(lines) > _LOG_MAX_LINES:
+            with open(_LOG_PATH, "w", encoding="utf-8") as _f:
+                _f.writelines(lines[-_LOG_MAX_LINES:])
+    except Exception:
+        pass
+
+import json
+from typing import AsyncGenerator
+from fastapi import FastAPI, Request, HTTPException, Depends, Query
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
 import requests
@@ -66,6 +98,34 @@ async def verify_token(key: str = Depends(_api_key_header)):
     if key != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="Token inválido ou ausente.")
 
+async def verify_token_sse(
+    key: str = Depends(_api_key_header),
+    token: str = Query(default=""),
+):
+    """Autenticação para SSE: aceita header X-Admin-Token ou query param ?token=."""
+    if key == ADMIN_TOKEN or token == ADMIN_TOKEN:
+        return
+    raise HTTPException(status_code=401, detail="Token inválido ou ausente.")
+
+# ── SSE broadcast ──────────────────────────────────────────────────────────────
+_sse_queues: list[asyncio.Queue] = []
+
+async def _sse_broadcast(event_type: str, data: dict) -> None:
+    if not _sse_queues:
+        return
+    msg = f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    dead = []
+    for q in _sse_queues:
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            dead.append(q)
+    for q in dead:
+        try:
+            _sse_queues.remove(q)
+        except ValueError:
+            pass
+
 _processed_msgs: dict = {}
 _MSG_TTL = 30
 
@@ -86,10 +146,7 @@ DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-
 _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "presente", "certo", "tá", "ta", "claro"}
 _NEGATIVE = {"não", "nao", "n", "cancelar", "reagendar", "remarcar", "não posso", "nao posso"}
 
-_CAMPAIGN_MSG = (
-    "Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes! "
-    "Você teria interesse em agendar uma consulta?"
-)
+# _CAMPAIGN_MSG foi movido para bot_config (campos campaign_enabled + campaign_message)
 
 def _is_campaign_response(text: str) -> bool:
     t = text.strip().lower()
@@ -125,6 +182,46 @@ def _typing_delay(text: str) -> float:
     return min(1.5 + len(text) * 0.070, 5.0)
 
 
+def _send_appointment_confirmation(phone: str, name: str, date: str, time: str) -> None:
+    """Envia mensagem de confirmação de agendamento ao cliente via WhatsApp."""
+    dt = datetime.fromisoformat(date)
+    date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
+    time_display = time.replace(":", "h")
+    parts = [
+        (
+            f"Olá, {name}! Aqui é a {_get_bot_cfg_str('store_name') or 'LenzÓtica'} 👓\n\n"
+            f"Seu agendamento foi confirmado! 📝\n"
+            f"Tipo: {_get_bot_cfg_str('confirmation_appointment_type')}\n"
+            f"➡️ {date_display} às {time_display}"
+        ),
+        f"📍 Nosso endereço: {_get_bot_cfg_str('confirmation_address')}",
+        f"📣 {_get_bot_cfg_str('confirmation_footer')}",
+    ]
+    for part in parts:
+        try:
+            send_message(phone, part)
+            inject_assistant_message(phone, part)
+        except Exception as e:
+            _log(f"[ADMIN NOTIF ERROR] {phone} — {e}")
+
+
+def _send_reschedule_notification(phone: str, name: str, date: str, time: str) -> None:
+    """Envia mensagem de remarcação ao cliente via WhatsApp."""
+    dt = datetime.fromisoformat(date)
+    date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
+    time_display = time.replace(":", "h")
+    text = (
+        f"Olá, {name}! Aqui é a {_get_bot_cfg_str('store_name') or 'LenzÓtica'} 👓\n\n"
+        f"Seu agendamento foi remarcado para *{date_display}* às *{time_display}*.\n\n"
+        f"Qualquer dúvida, é só nos chamar. Te esperamos!"
+    )
+    try:
+        send_message(phone, text)
+        inject_assistant_message(phone, text)
+    except Exception as e:
+        _log(f"[ADMIN NOTIF ERROR] {phone} — {e}")
+
+
 _DEFAULT_NOTIF: dict[str, str] = {
     "msg_lembrete_dia": (
         "Olá, {nome}! Aqui é a Liza da LenzÓtica 👓\n\n"
@@ -158,6 +255,46 @@ def _get_notif_template(key: str) -> str:
     except Exception:
         pass
     return _DEFAULT_NOTIF.get(key, "")
+
+
+# ── Helpers para campos de bot_config que saíram do código hardcoded ──────────
+
+_DEFAULT_BOT_CFG: dict[str, str] = {
+    "confirmation_appointment_type": "Exame de vista",
+    "confirmation_address": "Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)",
+    "confirmation_footer": "Caso precise reagendar, avisar com antecedência!!!",
+    "campaign_message": (
+        "Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes! "
+        "Você teria interesse em agendar uma consulta?"
+    ),
+    "msg_media_audio":    "Nao consigo ouvir audios, mas fico feliz em te ajudar por texto! Como posso te atender?",
+    "msg_media_image":    "Nao consigo visualizar imagens, mas pode me descrever o que precisa! Como posso te ajudar?",
+    "msg_media_video":    "Nao consigo assistir videos, mas pode me escrever o que precisa! Como posso te ajudar?",
+    "msg_media_document": "Nao consigo abrir documentos, mas pode me descrever o que precisa! Como posso te ajudar?",
+    "msg_media_sticker":  "Que simpatico! Posso te ajudar com alguma coisa?",
+}
+
+
+def _get_bot_cfg_str(key: str) -> str:
+    """Retorna campo texto de bot_config ou o default embutido."""
+    try:
+        row = db.fetchone(f"SELECT {key} FROM bot_config LIMIT 1")
+        if row and row[key] and str(row[key]).strip():
+            return str(row[key])
+    except Exception:
+        pass
+    return _DEFAULT_BOT_CFG.get(key, "")
+
+
+def _get_bot_cfg_bool(key: str, default: bool = True) -> bool:
+    """Retorna campo booleano de bot_config."""
+    try:
+        row = db.fetchone(f"SELECT {key} FROM bot_config LIMIT 1")
+        if row and row[key] is not None:
+            return bool(row[key])
+    except Exception:
+        pass
+    return default
 
 
 def _render_notif(template: str, nome: str = "", data: str = "", hora: str = "") -> str:
@@ -262,6 +399,29 @@ async def lifespan(app: FastAPI):
         "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_lembrete_hora      TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_cancelamento       TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_retorno            TEXT NOT NULL DEFAULT ''",
+        # Toggle global da IA
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS ia_global_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        # Campos de confirmação de agendamento (saíram do hardcoded)
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS confirmation_appointment_type TEXT NOT NULL DEFAULT 'Exame de vista'",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS confirmation_address TEXT NOT NULL DEFAULT 'Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)'",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS confirmation_footer TEXT NOT NULL DEFAULT 'Caso precise reagendar, avisar com antecedência!!!'",
+        # Campanha (toggle + mensagem)
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS campaign_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS campaign_message TEXT NOT NULL DEFAULT 'Essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes! Você teria interesse em agendar uma consulta?'",
+        # Respostas a mídias
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_media_audio    TEXT NOT NULL DEFAULT 'Nao consigo ouvir audios, mas fico feliz em te ajudar por texto! Como posso te atender?'",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_media_image    TEXT NOT NULL DEFAULT 'Nao consigo visualizar imagens, mas pode me descrever o que precisa! Como posso te ajudar?'",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_media_video    TEXT NOT NULL DEFAULT 'Nao consigo assistir videos, mas pode me escrever o que precisa! Como posso te ajudar?'",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_media_document TEXT NOT NULL DEFAULT 'Nao consigo abrir documentos, mas pode me descrever o que precisa! Como posso te ajudar?'",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_media_sticker  TEXT NOT NULL DEFAULT 'Que simpatico! Posso te ajudar com alguma coisa?'",
+        # Templates personalizados do operador
+        """CREATE TABLE IF NOT EXISTS custom_templates (
+            id         SERIAL PRIMARY KEY,
+            name       TEXT        NOT NULL,
+            content    TEXT        NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )""",
     ]
     for _sql in _migrations:
         try:
@@ -282,7 +442,7 @@ app = FastAPI(lifespan=lifespan)
 
 _LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "imagens", "logo lenzótica.PNG")
 
-@app.get("/debug", response_class=HTMLResponse)
+@app.get("/debug", response_class=HTMLResponse, dependencies=[Depends(verify_token)])
 async def debug_log():
     try:
         with open(_LOG_PATH, encoding="utf-8") as f:
@@ -292,7 +452,7 @@ async def debug_log():
     content = "".join(lines)
     return HTMLResponse(f"<html><body style='font-family:monospace;white-space:pre;font-size:13px;padding:16px'>{content}</body></html>")
 
-@app.post("/debug/clear")
+@app.post("/debug/clear", dependencies=[Depends(verify_token)])
 async def debug_clear():
     open(_LOG_PATH, "w").close()
     return {"status": "ok"}
@@ -355,6 +515,7 @@ async def admin_new_appointment(request: Request):
     phone = body["phone"].strip().lstrip("+") + "@s.whatsapp.net"
     date  = body["date"]
     time  = body["time"]
+    notify = bool(body.get("notify", True))
     try:
         datetime.fromisoformat(f"{date}T{time}:00")
     except ValueError:
@@ -366,6 +527,8 @@ async def admin_new_appointment(request: Request):
         event_id = ""
     add_appointment(phone, name, date, time, event_id)
     clients_mod.upsert_from_appointment(phone, name, date)
+    if notify:
+        await asyncio.to_thread(_send_appointment_confirmation, phone, name, date, time)
     return {"status": "ok"}
 
 
@@ -396,7 +559,9 @@ async def admin_edit(request: Request):
     new_phone = body["phone"].strip().lstrip("+") + "@s.whatsapp.net"
     new_date  = body["date"]
     new_time  = body["time"]
+    notify    = bool(body.get("notify", True))
     data = load_appointments()
+    changed = False
     for apt in data:
         if apt["phone"] == old_phone and apt["date"] == old_date and apt["time"] == old_time:
             try:
@@ -412,8 +577,13 @@ async def admin_edit(request: Request):
             apt["phone"] = new_phone
             apt["date"]  = new_date
             apt["time"]  = new_time
+            changed = True
             break
     save_appointments(data)
+    if changed and notify:
+        date_changed = new_date != old_date or new_time != old_time
+        if date_changed:
+            await asyncio.to_thread(_send_reschedule_notification, new_phone, new_name, new_date, new_time)
     return {"status": "ok"}
 
 
@@ -754,8 +924,16 @@ async def save_bot_config(request: Request):
         "store_notes", "bot_name", "bot_tone", "bot_personality",
         "bot_greeting", "bot_extra_rules",
         "msg_lembrete_dia", "msg_lembrete_hora", "msg_cancelamento", "msg_retorno",
+        # Confirmação de agendamento
+        "confirmation_appointment_type", "confirmation_address", "confirmation_footer",
+        # Campanha
+        "campaign_message",
+        # Respostas a mídias
+        "msg_media_audio", "msg_media_image", "msg_media_video",
+        "msg_media_document", "msg_media_sticker",
     ]
-    allowed_int = ["slot_duration_minutes", "slot_interval_minutes"]
+    allowed_int  = ["slot_duration_minutes", "slot_interval_minutes"]
+    allowed_bool = ["campaign_enabled"]
     fields = []
     values = []
     for key in allowed:
@@ -766,11 +944,73 @@ async def save_bot_config(request: Request):
         if key in body:
             fields.append(f"{key}=%s")
             values.append(int(body[key]))
+    for key in allowed_bool:
+        if key in body:
+            fields.append(f"{key}=%s")
+            values.append(bool(body[key]))
     if not fields:
         return {"status": "nothing_to_update"}
     fields.append("updated_at=now()")
     db.execute(f"UPDATE bot_config SET {', '.join(fields)}", tuple(values))
     pb.build_and_save_prompt()
+    return {"status": "ok"}
+
+
+# ─── Custom Templates ──────────────────────────────────────────────────────────
+
+@app.get("/admin/custom-templates", dependencies=[Depends(verify_token)])
+async def list_custom_templates():
+    rows = db.fetchall(
+        "SELECT id, name, content, created_at, updated_at FROM custom_templates ORDER BY id"
+    )
+    return [
+        {
+            "id":         r["id"],
+            "name":       r["name"],
+            "content":    r["content"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/admin/custom-templates", dependencies=[Depends(verify_token)])
+async def create_custom_template(request: Request):
+    body = await request.json()
+    name    = body.get("name", "").strip()
+    content = body.get("content", "").strip()
+    if not name or not content:
+        raise HTTPException(status_code=400, detail="name e content são obrigatórios")
+    tpl_id = db.fetchval(
+        "INSERT INTO custom_templates (name, content) VALUES (%s, %s) RETURNING id",
+        (name, content),
+    )
+    _log(f"[ADMIN] custom template criado: id={tpl_id} name={name!r}")
+    return {"status": "ok", "id": tpl_id}
+
+
+@app.put("/admin/custom-templates/{tpl_id}", dependencies=[Depends(verify_token)])
+async def update_custom_template(tpl_id: int, request: Request):
+    body = await request.json()
+    name    = body.get("name", "").strip()
+    content = body.get("content", "").strip()
+    if not name or not content:
+        raise HTTPException(status_code=400, detail="name e content são obrigatórios")
+    rows = db.fetchval(
+        "UPDATE custom_templates SET name=%s, content=%s, updated_at=NOW() WHERE id=%s RETURNING id",
+        (name, content, tpl_id),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Template não encontrado")
+    _log(f"[ADMIN] custom template atualizado: id={tpl_id}")
+    return {"status": "ok"}
+
+
+@app.delete("/admin/custom-templates/{tpl_id}", dependencies=[Depends(verify_token)])
+async def delete_custom_template(tpl_id: int):
+    db.execute("DELETE FROM custom_templates WHERE id=%s", (tpl_id,))
+    _log(f"[ADMIN] custom template excluido: id={tpl_id}")
     return {"status": "ok"}
 
 
@@ -937,60 +1177,66 @@ def _is_ia_enabled(phone: str) -> bool:
 async def chat_contacts():
     """Lista contatos com última mensagem, contagem não lida e modo IA."""
     rows = db.fetchall("""
-        SELECT DISTINCT ON (phone) phone, role, content, created_at, sent_by_operator
-        FROM conversation_history
-        ORDER BY phone, created_at DESC
+        WITH last_msg AS (
+            SELECT DISTINCT ON (phone)
+                phone, role, content, created_at
+            FROM conversation_history
+            ORDER BY phone, created_at DESC
+        ),
+        unread_counts AS (
+            SELECT ch.phone,
+                COUNT(*) FILTER (
+                    WHERE ch.role = 'user'
+                    AND (crs.last_read_at IS NULL OR ch.created_at > crs.last_read_at)
+                ) AS unread
+            FROM conversation_history ch
+            LEFT JOIN chat_read_status crs ON crs.phone = ch.phone
+            GROUP BY ch.phone
+        ),
+        apt_names AS (
+            SELECT DISTINCT ON (phone) phone, name
+            FROM appointments
+            ORDER BY phone, created_at DESC
+        ),
+        client_names AS (
+            SELECT
+                REPLACE(REPLACE(phone, '@s.whatsapp.net', ''), '@lid', '') AS phone_raw,
+                TRIM(first_name || ' ' || COALESCE(last_name, '')) AS name
+            FROM clients
+        )
+        SELECT
+            lm.phone,
+            lm.role,
+            lm.content,
+            lm.created_at,
+            COALESCE(uc.unread, 0)                          AS unread_count,
+            COALESCE(an.name, cn.name)                      AS resolved_name,
+            COALESCE(im.ia_enabled, TRUE)                   AS ia_enabled
+        FROM last_msg lm
+        LEFT JOIN unread_counts uc ON uc.phone = lm.phone
+        LEFT JOIN apt_names     an ON an.phone = lm.phone
+        LEFT JOIN client_names  cn ON cn.phone_raw =
+            REPLACE(REPLACE(lm.phone, '@s.whatsapp.net', ''), '@lid', '')
+        LEFT JOIN chat_ia_mode  im ON im.phone = lm.phone
+        ORDER BY lm.created_at DESC
     """)
-    read_rows = db.fetchall("SELECT phone, last_read_at FROM chat_read_status")
-    read_map = {r["phone"]: r["last_read_at"] for r in read_rows}
-    ia_rows = db.fetchall("SELECT phone, ia_enabled FROM chat_ia_mode")
-    ia_map = {r["phone"]: r["ia_enabled"] for r in ia_rows}
 
     contacts = []
     for row in rows:
         phone = row["phone"]
-        last_read = read_map.get(phone)
-        if last_read:
-            unread_row = db.fetchone(
-                "SELECT COUNT(*) AS cnt FROM conversation_history"
-                " WHERE phone = %s AND role = 'user' AND created_at > %s",
-                (phone, last_read),
-            )
-        else:
-            unread_row = db.fetchone(
-                "SELECT COUNT(*) AS cnt FROM conversation_history WHERE phone = %s AND role = 'user'",
-                (phone,),
-            )
-        unread = int(unread_row["cnt"]) if unread_row else 0
-
-        # Tenta obter nome via agendamentos
-        name_row = db.fetchone(
-            "SELECT name FROM appointments WHERE phone = %s ORDER BY created_at DESC LIMIT 1",
-            (phone,),
-        )
-        name = name_row["name"] if name_row else None
-        if not name:
-            phone_raw = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
-            client_row = db.fetchone(
-                "SELECT TRIM(first_name || ' ' || COALESCE(last_name,'')) AS name"
-                " FROM clients WHERE REPLACE(REPLACE(phone,'@s.whatsapp.net',''),'@lid','') = %s LIMIT 1",
-                (phone_raw,),
-            )
-            name = (client_row["name"] or "").strip() if client_row else None
-
         display_phone = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
+        name = (row["resolved_name"] or "").strip() or display_phone
         contacts.append({
             "phone": phone,
             "display_phone": display_phone,
-            "name": name or display_phone,
+            "name": name,
             "last_message": (row["content"] or "")[:80],
             "last_message_at": row["created_at"].isoformat() if row["created_at"] else None,
             "last_message_role": row["role"],
-            "unread_count": unread,
-            "ia_enabled": ia_map.get(phone, True),
+            "unread_count": int(row["unread_count"]),
+            "ia_enabled": bool(row["ia_enabled"]),
         })
 
-    contacts.sort(key=lambda c: c["last_message_at"] or "", reverse=True)
     return contacts
 
 
@@ -1014,6 +1260,36 @@ async def chat_messages(phone: str):
     ]
 
 
+@app.get("/admin/chat/stream", dependencies=[Depends(verify_token_sse)])
+async def chat_stream(request: Request):
+    """SSE — transmite eventos de novas mensagens para o painel de chat."""
+    q: asyncio.Queue = asyncio.Queue(maxsize=200)
+    _sse_queues.append(q)
+
+    async def generator() -> AsyncGenerator[str, None]:
+        try:
+            yield "event: connected\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=25)
+                    yield msg
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            try:
+                _sse_queues.remove(q)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/admin/chat/send", dependencies=[Depends(verify_token)])
 async def chat_send(request: Request):
     """Envia mensagem do operador para um contato via WhatsApp."""
@@ -1030,6 +1306,12 @@ async def chat_send(request: Request):
     import session as _sess
     _sess.push(phone, "assistant", text, sent_by_operator=True)
     _sess.save()
+    await _sse_broadcast("new_message", {
+        "phone": phone,
+        "content": text[:80],
+        "role": "assistant",
+        "sent_by_operator": True,
+    })
     return {"status": "ok"}
 
 
@@ -1059,6 +1341,58 @@ async def set_ia_mode(phone: str, request: Request):
         " ON CONFLICT (phone) DO UPDATE SET ia_enabled = %s, updated_at = NOW()",
         (phone, enabled, enabled),
     )
+    return {"status": "ok", "ia_enabled": enabled}
+
+
+# Pares (texto_sem_break, texto_com_break) para casos onde o modelo
+# omite o token [BREAK] mesmo quando instruído. A verificação é
+# case-insensitive e tolerante a variações de espaçamento.
+_BREAK_FIXES: list[tuple[str, str]] = [
+    (
+        "pode passar direto com o oftalmologista. Por favor entre em contato",
+        "pode passar direto com o oftalmologista.[BREAK]Por favor entre em contato",
+    ),
+    (
+        "pode passar direto com o oftalmologista. Por favor, entre em contato",
+        "pode passar direto com o oftalmologista.[BREAK]Por favor, entre em contato",
+    ),
+]
+
+
+def _restore_breaks(reply: str) -> str:
+    """Injeta [BREAK] em respostas onde o modelo omitiu o token obrigatório."""
+    if "[BREAK]" in reply:
+        return reply
+    for pattern, replacement in _BREAK_FIXES:
+        if pattern.lower() in reply.lower():
+            # Preserva casing original — substitui apenas a primeira ocorrência
+            idx = reply.lower().find(pattern.lower())
+            reply = reply[:idx] + replacement + reply[idx + len(pattern):]
+            break
+    return reply
+
+
+def _ia_global_enabled() -> bool:
+    """Retorna o estado do toggle global da IA."""
+    try:
+        row = db.fetchone("SELECT ia_global_enabled FROM bot_config LIMIT 1")
+        return bool(row["ia_global_enabled"]) if row else True
+    except Exception:
+        return True
+
+
+@app.get("/admin/ia-global", dependencies=[Depends(verify_token)])
+async def get_ia_global():
+    return {"ia_enabled": _ia_global_enabled()}
+
+
+@app.post("/admin/ia-global", dependencies=[Depends(verify_token)])
+async def set_ia_global(request: Request):
+    body    = await request.json()
+    enabled = bool(body.get("ia_enabled", True))
+    db.execute("UPDATE bot_config SET ia_global_enabled = %s", (enabled,))
+    estado  = "ATIVADA" if enabled else "PAUSADA"
+    _log(f"[ADMIN] IA global {estado} via painel.")
     return {"status": "ok", "ia_enabled": enabled}
 
 
@@ -1161,6 +1495,130 @@ async def system_status():
     }
 
 
+# ─── Error Logs ────────────────────────────────────────────────────────────────
+
+_RE_LOG_NEW = re.compile(r"^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\] \[(\w+)\] (.+)$")
+_RE_LOG_OLD = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\] (.+)$")
+_MOD_KEYS   = ("WEBHOOK", "CALENDAR", "ADMIN", "AI", "SCHEDULER", "LIFESPAN", "RAG", "CHAT")
+
+def _detect_module(msg: str) -> str:
+    mu = msg.upper()
+    for m in _MOD_KEYS:
+        if f"[{m}" in mu or mu.lstrip().startswith(m):
+            return m
+    return "SYSTEM"
+
+def _detect_level(msg: str) -> str:
+    mu = msg.upper()
+    if any(k in mu for k in _KW_ERROR):
+        return "ERROR"
+    if any(k in mu for k in _KW_WARN):
+        return "WARN"
+    return "INFO"
+
+@app.get("/admin/error-logs", dependencies=[Depends(verify_token)])
+async def get_error_logs(
+    level: str = "all",
+    limit: int = 200,
+    search: str = "",
+    since_hours: int = 0,
+):
+    """Retorna entradas do debug.log com filtro de nível, busca e janela temporal."""
+    try:
+        with open(_LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
+            raw_lines = f.readlines()
+    except FileNotFoundError:
+        raw_lines = []
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    since_dt  = datetime.now() - timedelta(hours=since_hours) if since_hours > 0 else None
+
+    entries: list[dict] = []
+    count_error = count_warn = count_info = 0
+
+    # Totais globais (percorre todas as linhas)
+    for raw in raw_lines:
+        if   "[ERROR]" in raw: count_error += 1
+        elif "[WARN]"  in raw: count_warn  += 1
+        elif "[INFO]"  in raw: count_info  += 1
+
+    # Monta entradas filtradas (ordem reversa = mais recentes primeiro)
+    search_l = search.lower()
+    for raw in reversed(raw_lines):
+        raw = raw.rstrip("\n")
+        if not raw.strip():
+            continue
+
+        m = _RE_LOG_NEW.match(raw)
+        if m:
+            date_str, time_str, lvl, msg = m.groups()
+        else:
+            m2 = _RE_LOG_OLD.match(raw)
+            if m2:
+                time_str, msg = m2.groups()
+                date_str = today_str
+                lvl = _detect_level(msg)
+            else:
+                continue
+
+        # Filtro de nível
+        if level != "all" and lvl.lower() != level.lower():
+            continue
+
+        # Filtro de janela temporal
+        if since_dt:
+            try:
+                if datetime.fromisoformat(f"{date_str}T{time_str}") < since_dt:
+                    break  # ordem reversa → tudo abaixo é mais antigo
+            except Exception:
+                pass
+
+        # Filtro de busca
+        if search_l and search_l not in msg.lower() and search_l not in raw.lower():
+            continue
+
+        entries.append({
+            "date":    date_str,
+            "time":    time_str,
+            "level":   lvl,
+            "module":  _detect_module(msg),
+            "message": msg[:400],
+            "raw":     raw[:500],
+        })
+
+        if len(entries) >= limit:
+            break
+
+    last_error = next((e for e in entries if e["level"] == "ERROR"), None)
+
+    try:
+        log_size_kb = os.path.getsize(_LOG_PATH) // 1024
+    except Exception:
+        log_size_kb = 0
+
+    return {
+        "entries":      entries,
+        "total_lines":  len(raw_lines),
+        "count_error":  count_error,
+        "count_warn":   count_warn,
+        "count_info":   count_info,
+        "last_error_at": f"{last_error['date']} {last_error['time']}" if last_error else None,
+        "log_size_kb":  log_size_kb,
+        "checked_at":   datetime.now().isoformat(),
+    }
+
+
+@app.post("/admin/error-logs/clear", dependencies=[Depends(verify_token)])
+async def clear_error_logs():
+    """Apaga o conteúdo do debug.log."""
+    try:
+        open(_LOG_PATH, "w").close()
+        _log("Log limpo pelo operador via painel.", level="INFO")
+        return {"status": "ok"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ─── Webhook ───────────────────────────────────────────────────────────────────
 
 @app.post("/webhook")
@@ -1204,11 +1662,11 @@ async def webhook(request: Request, event_path: str = ""):
 
         if not text:
             MEDIA_RESPONSES = {
-                "audioMessage":    "Nao consigo ouvir audios, mas fico feliz em te ajudar por texto! Como posso te atender?",
-                "imageMessage":    "Nao consigo visualizar imagens, mas pode me descrever o que precisa! Como posso te ajudar?",
-                "videoMessage":    "Nao consigo assistir videos, mas pode me escrever o que precisa! Como posso te ajudar?",
-                "documentMessage": "Nao consigo abrir documentos, mas pode me descrever o que precisa! Como posso te ajudar?",
-                "stickerMessage":  "Que simpatico! Posso te ajudar com alguma coisa?",
+                "audioMessage":    _get_bot_cfg_str("msg_media_audio"),
+                "imageMessage":    _get_bot_cfg_str("msg_media_image"),
+                "videoMessage":    _get_bot_cfg_str("msg_media_video"),
+                "documentMessage": _get_bot_cfg_str("msg_media_document"),
+                "stickerMessage":  _get_bot_cfg_str("msg_media_sticker"),
             }
             for media_type, response in MEDIA_RESPONSES.items():
                 if media_type in message:
@@ -1226,6 +1684,14 @@ async def webhook(request: Request, event_path: str = ""):
             msg = "✅ Conversa reiniciada. Como posso ajudar?"
             send_message(sender, msg)
             inject_assistant_message(sender, msg)
+            return {"status": "ok"}
+
+        # Verifica toggle global da IA (pausa geral via painel)
+        if not _ia_global_enabled():
+            import session as _sess_wh
+            _sess_wh.push(sender, "user", text)
+            _sess_wh.save()
+            _log(f"[IA GLOBAL PAUSADA] Mensagem de {sender} salva sem resposta (IA desligada globalmente)")
             return {"status": "ok"}
 
         # Verifica se a IA está pausada para este contato (modo manual do operador)
@@ -1287,10 +1753,18 @@ async def webhook(request: Request, event_path: str = ""):
             return {"status": "ok"}
 
         mark_response_received(sender)
+        await _sse_broadcast("new_message", {
+            "phone": sender,
+            "content": text[:80],
+            "role": "user",
+            "sent_by_operator": False,
+        })
 
         if has_empty_session(sender) and _is_campaign_response(text_clean):
-            inject_assistant_message(sender, _CAMPAIGN_MSG)
-            _log(f"[CAMPANHA] Contexto injetado para {sender}")
+            if _get_bot_cfg_bool("campaign_enabled", True):
+                campaign_msg = _get_bot_cfg_str("campaign_message")
+                inject_assistant_message(sender, campaign_msg)
+                _log(f"[CAMPANHA] Contexto injetado para {sender}")
 
         try:
             reply = await asyncio.to_thread(get_response, sender, text)
@@ -1299,6 +1773,8 @@ async def webhook(request: Request, event_path: str = ""):
             if pending_match:
                 add_pending(sender, pending_match.group(1).strip())
                 reply = PENDING_MARKER.sub("", reply).strip()
+
+            reply = _restore_breaks(reply)
 
             parts = [p.strip() for p in reply.split("[BREAK]") if p.strip()]
 
@@ -1359,9 +1835,9 @@ async def webhook(request: Request, event_path: str = ""):
                     time_display = time_str.replace(":", "h")
 
                     confirmation_parts = [
-                        f"Agendamento confirmado! 📝\nTipo de agendamento: Exame de vista\n➡️ {date_display} às {time_display}\nCliente: {name}",
-                        f"📍 Nosso endereço: Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC (ao lado do cartório)",
-                        f"📣 Caso precise reagendar, avisar com antecedência!!!",
+                        f"Agendamento confirmado! 📝\nTipo de agendamento: {_get_bot_cfg_str('confirmation_appointment_type')}\n➡️ {date_display} às {time_display}\nCliente: {name}",
+                        f"📍 Nosso endereço: {_get_bot_cfg_str('confirmation_address')}",
+                        f"📣 {_get_bot_cfg_str('confirmation_footer')}",
                     ]
                     for i, part in enumerate(confirmation_parts):
                         if i > 0:

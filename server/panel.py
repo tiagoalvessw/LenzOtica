@@ -348,6 +348,20 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     .btn-new{{padding:.44rem 1rem;border-radius:var(--radius-sm);font-size:.82rem;font-weight:600;font-family:inherit;cursor:pointer;border:none;background:var(--primary);color:#fff;white-space:nowrap;display:flex;align-items:center;gap:.35rem;transition:opacity .15s,transform .1s}}
     .btn-new:hover{{opacity:.88;transform:translateY(-1px)}}
     .btn-new:active{{transform:translateY(0)}}
+    .date-filter-wrap{{display:flex;align-items:center;gap:.4rem;flex-wrap:nowrap}}
+    .date-filter-wrap label{{font-size:.75rem;color:var(--text2);white-space:nowrap}}
+    .date-filter-wrap input[type=date]{{padding:.38rem .55rem;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:.8rem;font-family:inherit;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s,box-shadow .15s;width:130px}}
+    .date-filter-wrap input[type=date]:focus{{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow)}}
+    .btn-clear-dates{{padding:.38rem .7rem;border-radius:var(--radius-sm);font-size:.75rem;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--text2);white-space:nowrap;transition:background .12s,color .12s;display:none}}
+    .btn-clear-dates:hover{{background:var(--bg);color:var(--text)}}
+    .btn-clear-dates.visible{{display:inline-flex;align-items:center;gap:.3rem}}
+    .pagination{{display:flex;align-items:center;justify-content:space-between;padding:.7rem 1.25rem;border-top:1px solid var(--border);background:var(--surface2);flex-wrap:wrap;gap:.5rem}}
+    .pagination-info{{font-size:.78rem;color:var(--text2)}}
+    .pagination-btns{{display:flex;align-items:center;gap:.3rem}}
+    .pg-btn{{padding:.3rem .65rem;border-radius:6px;font-size:.78rem;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--text2);transition:background .12s,color .12s,border-color .12s}}
+    .pg-btn:hover:not(:disabled){{background:var(--bg);border-color:var(--primary);color:var(--primary)}}
+    .pg-btn:disabled{{opacity:.4;cursor:not-allowed}}
+    .pg-btn.active{{background:var(--primary);color:#fff;border-color:var(--primary)}}
     .table-wrap{{overflow-x:auto}}
     table{{width:100%;border-collapse:collapse;min-width:700px}}
     thead th{{background:var(--surface2);text-align:left;padding:.7rem 1.1rem;font-size:.67rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap}}
@@ -471,10 +485,18 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     /* PROMPT */
     .prompt-textarea{{width:100%;font-size:.77rem;font-family:monospace;border:1px solid var(--border);border-radius:var(--radius-sm);padding:.65rem .9rem;background:var(--surface2);color:var(--text);resize:vertical;line-height:1.6;min-height:240px}}
     /* RAG PARAMS */
-    .rag-params{{display:flex;flex-wrap:wrap;gap:1rem;margin-bottom:.5rem}}
-    .rp-item{{display:flex;flex-direction:column;gap:.25rem}}
-    .rp-item label{{font-size:.72rem;color:var(--text2);font-weight:600;white-space:nowrap}}
-    .rp-item .rp-input{{width:110px}}
+    .rag-params{{display:flex;flex-wrap:wrap;gap:.75rem;margin-bottom:.5rem}}
+    .rp-item{{display:flex;flex-direction:column;gap:.3rem;position:relative}}
+    .rp-item label{{font-size:.72rem;color:var(--text2);font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:.3rem;cursor:default}}
+    .rp-label-icon{{font-size:.68rem;color:var(--text3);border:1px solid var(--border2);border-radius:50%;width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;cursor:help}}
+    .rp-stepper{{display:flex;align-items:center;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:fit-content}}
+    .rp-btn{{background:var(--surface2);border:none;color:var(--text2);width:26px;height:30px;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s;flex-shrink:0;line-height:1}}
+    .rp-btn:hover{{background:var(--border);color:var(--text)}}
+    .rp-input{{width:62px;height:30px;border:none;border-left:1px solid var(--border);border-right:1px solid var(--border);text-align:center;font-size:.82rem;background:var(--surface);color:var(--text);padding:0;-moz-appearance:textfield}}
+    .rp-input::-webkit-outer-spin-button,.rp-input::-webkit-inner-spin-button{{-webkit-appearance:none;margin:0}}
+    .rp-input:disabled{{opacity:.35;cursor:not-allowed}}
+    .rp-tooltip{{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--text);color:var(--surface);font-size:.7rem;padding:.35rem .6rem;border-radius:5px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;z-index:99;max-width:220px;white-space:normal;text-align:center;line-height:1.4}}
+    .rp-item:hover .rp-tooltip{{opacity:1}}
     .rag-section-hdr{{display:flex;align-items:center;justify-content:space-between}}
 
     /* RAG CONHECIMENTO — banner, guia de tipos, legenda */
@@ -687,6 +709,24 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     #page-chat.active{{display:flex;flex-direction:column;padding:0;max-width:none;height:calc(100vh - 56px);overflow:hidden}}
     .chat-layout{{display:flex;height:100%;min-height:0}}
 
+    /* Botao robo IA global */
+    .global-ia-btn{{width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s,box-shadow .2s,transform .15s;position:relative}}
+    .global-ia-btn:hover{{transform:scale(1.1)}}
+    .global-ia-btn:active{{transform:scale(.93)}}
+    .global-ia-btn.ia-on{{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.2);animation:robot-pulse 2.2s ease-in-out infinite}}
+    .global-ia-btn.ia-off{{background:#ef4444;box-shadow:none;animation:none}}
+    @keyframes robot-pulse{{0%,100%{{box-shadow:0 0 0 4px rgba(34,197,94,.2)}}50%{{box-shadow:0 0 0 8px rgba(34,197,94,.06)}}}}
+    /* Banner de status da IA global */
+    .ia-global-banner{{display:none;align-items:center;gap:.5rem;padding:.38rem .9rem;font-size:.75rem;font-weight:600;border-bottom:1px solid transparent;flex-shrink:0}}
+    .ia-global-banner.ia-on{{display:flex;background:#f0fdf4;color:#15803d;border-color:#bbf7d0}}
+    .ia-global-banner.ia-off{{display:flex;background:#fef2f2;color:#b91c1c;border-color:#fecaca;animation:banner-blink 3s ease-in-out infinite}}
+    @keyframes banner-blink{{0%,100%{{opacity:1}}50%{{opacity:.7}}}}
+    [data-theme="dark"] .ia-global-banner.ia-on{{background:#052e16;color:#4ade80;border-color:#166534}}
+    [data-theme="dark"] .ia-global-banner.ia-off{{background:#450a0a;color:#fca5a5;border-color:#7f1d1d}}
+    .ia-banner-dot{{width:7px;height:7px;border-radius:50%;flex-shrink:0}}
+    .ia-global-banner.ia-on  .ia-banner-dot{{background:#22c55e}}
+    .ia-global-banner.ia-off .ia-banner-dot{{background:#ef4444}}
+
     /* Painel de contatos */
     .chat-contacts-panel{{width:330px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surface);overflow:hidden}}
     .chat-contacts-hdr{{padding:.85rem 1rem;border-bottom:1px solid var(--border);background:var(--surface2);flex-shrink:0}}
@@ -719,22 +759,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     .chat-conv-info{{flex:1;min-width:0}}
     .chat-conv-name{{font-size:.9rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
     .chat-conv-phone{{font-size:.72rem;color:var(--muted);font-family:'SF Mono','Fira Code',monospace}}
-    .chat-ia-control{{display:flex;align-items:center;gap:.5rem;flex-shrink:0}}
-    .chat-ia-badge{{display:inline-flex;align-items:center;gap:.32rem;padding:.22rem .62rem;border-radius:999px;font-size:.72rem;font-weight:700}}
-    .chat-ia-on{{background:#d1fae5;color:#065f46;border:1px solid #a7f3d0}}
-    .chat-ia-off{{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}}
-    [data-theme="dark"] .chat-ia-on{{background:#052e16;color:#6ee7b7;border-color:#065f46}}
-    [data-theme="dark"] .chat-ia-off{{background:#450a0a;color:#fca5a5;border-color:#7f1d1d}}
-    .chat-ia-dot{{width:6px;height:6px;border-radius:50%;flex-shrink:0}}
-    .chat-ia-on .chat-ia-dot{{background:#22c55e}}
-    .chat-ia-off .chat-ia-dot{{background:#ef4444}}
-    .btn-ia-toggle{{padding:.3rem .75rem;border-radius:6px;font-size:.74rem;font-weight:600;font-family:inherit;cursor:pointer;border:none;transition:background .12s,color .12s;white-space:nowrap}}
-    .btn-ia-toggle.pause{{background:#fef9c3;color:#854d0e}}
-    .btn-ia-toggle.pause:hover{{background:#fde68a}}
-    .btn-ia-toggle.resume{{background:#d1fae5;color:#065f46}}
-    .btn-ia-toggle.resume:hover{{background:#a7f3d0}}
-    [data-theme="dark"] .btn-ia-toggle.pause{{background:#2a1c00;color:#fbbf24}}
-    [data-theme="dark"] .btn-ia-toggle.resume{{background:#052e16;color:#6ee7b7}}
+
 
     /* Área de mensagens */
     .chat-messages{{flex:1;overflow-y:auto;padding:.75rem 1rem;background:#e5ddd5;display:flex;flex-direction:column;gap:.25rem;min-height:0}}
@@ -756,9 +781,6 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     .chat-sub-label.op{{color:#1d4ed8}}
     [data-theme="dark"] .chat-sub-label.op{{color:#93c5fd}}
 
-    /* Banner IA pausada */
-    .chat-ia-warning-bar{{padding:.42rem 1rem;background:#fef9c3;color:#854d0e;font-size:.77rem;font-weight:500;border-top:1px solid #fde68a;display:flex;align-items:center;gap:.45rem;flex-shrink:0}}
-    [data-theme="dark"] .chat-ia-warning-bar{{background:#2a1c00;color:#fbbf24;border-color:#78350f}}
 
     /* Barra de input */
     .chat-input-bar{{padding:.65rem .9rem;background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:flex-end;gap:.6rem;flex-shrink:0}}
@@ -781,6 +803,65 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       .chat-layout.conv-open .chat-contacts-panel{{display:none}}
       .chat-layout.conv-open .chat-conv-panel{{display:flex}}
     }}
+
+    /* ── LOG DE ERROS ─────────────────────────────────────────────────────── */
+    .log-section-hdr{{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}}
+    .log-count-row{{display:flex;align-items:center;gap:.4rem}}
+    .log-count-chip{{display:inline-flex;align-items:center;gap:.28rem;padding:.18rem .6rem;border-radius:999px;font-size:.7rem;font-weight:700;white-space:nowrap}}
+    .log-count-error{{background:#fee2e2;color:#991b1b}}
+    .log-count-warn{{background:#fef3c7;color:#92400e}}
+    [data-theme="dark"] .log-count-error{{background:#450a0a;color:#fca5a5}}
+    [data-theme="dark"] .log-count-warn{{background:#422006;color:#fde68a}}
+    .log-filter-row{{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;padding:.7rem 1.25rem;border-bottom:1px solid var(--border);background:var(--surface2)}}
+    .log-filter-btn{{padding:.26rem .72rem;border-radius:999px;font-size:.73rem;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--text2);transition:background .12s,color .12s;white-space:nowrap}}
+    .log-filter-btn:hover:not([data-lf-active]){{background:var(--surface2)}}
+    .log-filter-btn[data-lf-active="all"]  {{background:#475569;color:#fff;border-color:transparent}}
+    .log-filter-btn[data-lf-active="error"]{{background:#dc2626;color:#fff;border-color:transparent}}
+    .log-filter-btn[data-lf-active="warn"] {{background:#d97706;color:#fff;border-color:transparent}}
+    .log-filter-btn[data-lf-active="info"] {{background:#0891b2;color:#fff;border-color:transparent}}
+    .log-search{{flex:1;min-width:150px;max-width:280px;padding:.3rem .75rem;border:1px solid var(--border2);border-radius:999px;font-size:.8rem;font-family:inherit;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s}}
+    .log-search:focus{{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-glow)}}
+    .log-search::placeholder{{color:var(--muted)}}
+    .log-table{{width:100%;border-collapse:collapse;font-size:.8rem}}
+    .log-table th{{background:var(--surface2);padding:.55rem .9rem;text-align:left;font-size:.63rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap}}
+    .log-table td{{padding:.52rem .9rem;border-bottom:1px solid var(--border);vertical-align:top;line-height:1.4}}
+    .log-table tr:last-child td{{border-bottom:none}}
+    .log-table tbody tr:hover td{{background:var(--surface2)}}
+    .log-level{{display:inline-flex;align-items:center;gap:.22rem;font-size:.67rem;font-weight:700;padding:.1rem .48rem;border-radius:4px;white-space:nowrap;letter-spacing:.02em}}
+    .log-level.ERROR{{background:#fee2e2;color:#991b1b}}
+    .log-level.WARN {{background:#fef3c7;color:#92400e}}
+    .log-level.INFO {{background:#f0f9ff;color:#0369a1}}
+    [data-theme="dark"] .log-level.ERROR{{background:#450a0a;color:#fca5a5}}
+    [data-theme="dark"] .log-level.WARN {{background:#422006;color:#fde68a}}
+    [data-theme="dark"] .log-level.INFO {{background:#082f49;color:#7dd3fc}}
+    .log-time{{font-size:.72rem;font-family:'SF Mono','Fira Code',monospace;color:var(--text2);white-space:nowrap}}
+    .log-module{{font-size:.67rem;font-weight:600;color:var(--muted);font-family:'SF Mono','Fira Code',monospace;white-space:nowrap;background:var(--surface2);border:1px solid var(--border);padding:.08rem .38rem;border-radius:4px}}
+    .log-msg{{font-size:.78rem;color:var(--text);font-family:'SF Mono','Fira Code',monospace;word-break:break-all;max-width:480px;line-height:1.5}}
+    .log-footer{{padding:.58rem 1.25rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.35rem;border-top:1px solid var(--border);background:var(--surface2);font-size:.71rem;color:var(--muted)}}
+    .log-empty{{padding:2rem 1.25rem;text-align:center;color:var(--muted);font-size:.84rem}}
+    .log-hdr-actions{{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}}
+    /* ── TEMPLATES PERSONALIZADOS ────────────────────────────────────────── */
+    .ctpl-section-hdr{{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem}}
+    .ctpl-list{{display:flex;flex-direction:column;gap:.75rem;padding:1.25rem 1.5rem 1.5rem}}
+    .ctpl-card{{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;transition:box-shadow .15s}}
+    .ctpl-card:hover{{box-shadow:var(--shadow-sm)}}
+    .ctpl-card-hdr{{display:flex;align-items:center;gap:.75rem;padding:.65rem 1rem;border-bottom:1px solid var(--border);background:var(--surface)}}
+    .ctpl-card-icon{{width:28px;height:28px;border-radius:7px;background:#eff6ff;color:#2563eb;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.9rem}}
+    [data-theme="dark"] .ctpl-card-icon{{background:#1e3a5f;color:#93c5fd}}
+    .ctpl-card-name{{font-size:.84rem;font-weight:700;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+    .ctpl-card-actions{{display:flex;gap:.3rem;flex-shrink:0}}
+    .ctpl-card-body{{padding:.65rem 1rem .85rem}}
+    .ctpl-preview{{font-size:.8rem;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:72px;overflow:hidden;position:relative}}
+    .ctpl-preview::after{{content:'';position:absolute;bottom:0;left:0;right:0;height:22px;background:linear-gradient(transparent,var(--surface2))}}
+    .ctpl-empty{{padding:2.5rem 1.5rem;text-align:center;color:var(--muted);font-size:.84rem;display:flex;flex-direction:column;align-items:center;gap:.65rem}}
+    .ctpl-empty-icon{{font-size:2rem;opacity:.5}}
+    /* Acordeão de registros */
+    .log-accordion-btn{{display:flex;align-items:center;gap:.45rem;padding:.32rem .75rem;border-radius:var(--radius-sm);font-size:.78rem;font-weight:600;font-family:inherit;cursor:pointer;border:1px solid var(--border2);background:var(--surface);color:var(--text2);transition:background .12s,color .12s;white-space:nowrap}}
+    .log-accordion-btn:hover{{background:var(--surface2);color:var(--text)}}
+    .log-accordion-btn .acc-arrow{{transition:transform .22s ease;flex-shrink:0}}
+    .log-accordion-btn.open .acc-arrow{{transform:rotate(180deg)}}
+    .log-accordion-body{{overflow:hidden;transition:max-height .28s ease,opacity .2s ease;max-height:0;opacity:0}}
+    .log-accordion-body.open{{max-height:2400px;opacity:1}}
   </style>
 </head>
 <body>
@@ -921,6 +1002,16 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
                 <span class="search-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
                 <input id="search" type="text" placeholder="Buscar por nome ou telefone..." oninput="applyFilter()">
               </div>
+              <div class="date-filter-wrap">
+                <label for="filter-date-from">De</label>
+                <input type="date" id="filter-date-from" onchange="onDateFilterChange()">
+                <label for="filter-date-to">Ate</label>
+                <input type="date" id="filter-date-to" onchange="onDateFilterChange()">
+                <button class="btn-clear-dates" id="btn-clear-dates" onclick="clearDateFilter()">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  Limpar
+                </button>
+              </div>
               <button class="btn-new" onclick="openModal()">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Novo agendamento
@@ -931,6 +1022,10 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
                 <thead><tr><th>Cliente</th><th>Telefone</th><th>Data</th><th>Hora</th><th>Faltam</th><th>Status</th><th>Acoes</th></tr></thead>
                 <tbody id="tbody">{body}</tbody>
               </table>
+            </div>
+            <div class="pagination" id="pagination">
+              <span class="pagination-info" id="pg-info"></span>
+              <div class="pagination-btns" id="pg-btns"></div>
             </div>
           </div>
           <div id="pending-section" style="display:none;">
@@ -1057,9 +1152,27 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         <!-- Painel esquerdo: lista de contatos -->
         <div class="chat-contacts-panel">
           <div class="chat-contacts-hdr">
-            <div class="chat-contacts-title">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              Conversas WhatsApp
+            <div class="chat-contacts-title" style="justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:.4rem">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Conversas WhatsApp
+              </div>
+              <button id="global-ia-btn" class="global-ia-btn ia-on" onclick="toggleGlobalIA()"
+                title="Clique para pausar ou retomar a IA globalmente">
+                <!-- Icone de robo -->
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="11" width="18" height="10" rx="2"/>
+                  <path d="M12 11V7"/>
+                  <circle cx="12" cy="5" r="2"/>
+                  <line x1="8" y1="15" x2="8" y2="15"/><line x1="16" y1="15" x2="16" y2="15"/>
+                  <path d="M8 19h8"/>
+                </svg>
+              </button>
+            </div>
+            <!-- Banner de status da IA -->
+            <div class="ia-global-banner ia-on" id="ia-global-banner">
+              <span class="ia-banner-dot"></span>
+              <span id="ia-global-banner-txt">IA ativa &mdash; respondendo automaticamente</span>
             </div>
             <input class="chat-search" id="chat-search" type="text" placeholder="Buscar por nome ou numero..." oninput="filterChatContacts()">
             <div class="chat-filter-row">
@@ -1091,23 +1204,12 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
                 <div class="chat-conv-name" id="conv-name">—</div>
                 <div class="chat-conv-phone" id="conv-phone"></div>
               </div>
-              <div class="chat-ia-control">
-                <div class="chat-ia-badge chat-ia-on" id="conv-ia-badge">
-                  <div class="chat-ia-dot"></div>
-                  <span id="conv-ia-label">IA ativa</span>
-                </div>
-                <button class="btn-ia-toggle pause" id="btn-ia-toggle" onclick="toggleChatIA()">Pausar IA</button>
-              </div>
+
             </div>
 
             <!-- Area de mensagens -->
             <div class="chat-messages" id="chat-messages-area"></div>
 
-            <!-- Banner: IA pausada -->
-            <div id="chat-ia-warning-bar" class="chat-ia-warning-bar" style="display:none">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              IA pausada &mdash; voce esta respondendo manualmente para este contato
-            </div>
 
             <!-- Barra de input -->
             <div class="chat-input-bar">
@@ -1168,10 +1270,10 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
           <svg class="cfg-tab-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
           <span class="cfg-tab-label">Avancado</span>
         </button>
-        <button class="cfg-tab" data-tab="status" onclick="switchCfgTab('status')">
+        <button class="cfg-tab" data-tab="monitoramento" onclick="switchCfgTab('monitoramento')">
           <span class="cfg-dirty-dot"></span>
           <svg class="cfg-tab-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          <span class="cfg-tab-label">Status</span>
+          <span class="cfg-tab-label">Monitoramento</span>
         </button>
       </div>
 
@@ -1500,6 +1602,70 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
               </div>
             </div>
 
+            <!-- Card 5: Confirmação de agendamento -->
+            <div class="notif-tpl-card">
+              <div class="notif-tpl-hdr">
+                <div class="notif-tpl-badge" style="background:#dbeafe;color:#1d4ed8">&#128203;</div>
+                <div class="notif-tpl-info">
+                  <div class="notif-tpl-title">Confirmacao de Agendamento</div>
+                  <div class="notif-tpl-desc">Mensagem enviada ao cliente apos o agendamento ser registrado. Composta por 3 partes enviadas em sequencia.</div>
+                </div>
+              </div>
+              <div class="notif-tpl-body" style="gap:.5rem">
+                <label class="bcf-label" style="padding-top:.25rem">Tipo de atendimento</label>
+                <input class="bcf-input" id="notif-confirmation-type" placeholder="Ex: Exame de vista">
+                <label class="bcf-label" style="padding-top:.5rem">Endereco da loja</label>
+                <input class="bcf-input" id="notif-confirmation-address" placeholder="Ex: Rua Exemplo, 123, Bairro, Cidade - SC">
+                <label class="bcf-label" style="padding-top:.5rem">Aviso final</label>
+                <input class="bcf-input" id="notif-confirmation-footer" placeholder="Ex: Caso precise reagendar, avisar com antecedencia!!!">
+              </div>
+            </div>
+
+            <!-- Card 6: Campanha -->
+            <div class="notif-tpl-card">
+              <div class="notif-tpl-hdr">
+                <div class="notif-tpl-badge" style="background:#fef9c3;color:#a16207">&#127881;</div>
+                <div class="notif-tpl-info">
+                  <div class="notif-tpl-title">
+                    Mensagem de Campanha
+                    <label class="toggle-switch" style="margin-left:.75rem" title="Ativar ou desativar a campanha">
+                      <input type="checkbox" id="notif-campaign-enabled" onchange="saveCampaignEnabled()">
+                      <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                      <span style="font-size:.72rem;color:var(--text2)">Ativa</span>
+                    </label>
+                  </div>
+                  <div class="notif-tpl-desc">Mensagem injetada no contexto da IA quando um novo cliente demonstra interesse. Desative quando nao houver campanha em andamento.</div>
+                </div>
+              </div>
+              <div class="notif-tpl-body">
+                <textarea class="notif-ta" id="notif-ta-campanha" rows="3" oninput="updateCharCount(this,'notif-cc-campanha')" placeholder="Ex: Essa semana temos exame gratuito! Quer agendar?"></textarea>
+                <div class="notif-char-count" id="notif-cc-campanha">0 caracteres</div>
+              </div>
+            </div>
+
+            <!-- Card 7: Respostas a midias -->
+            <div class="notif-tpl-card">
+              <div class="notif-tpl-hdr">
+                <div class="notif-tpl-badge" style="background:#f3e8ff;color:#7e22ce">&#127908;</div>
+                <div class="notif-tpl-info">
+                  <div class="notif-tpl-title">Respostas a Midias</div>
+                  <div class="notif-tpl-desc">Mensagens enviadas quando o cliente manda audio, imagem, video, documento ou sticker — a IA nao processa esses tipos de arquivo.</div>
+                </div>
+              </div>
+              <div class="notif-tpl-body" style="gap:.5rem">
+                <label class="bcf-label" style="padding-top:.25rem">Audio &#127908;</label>
+                <input class="bcf-input" id="notif-media-audio" placeholder="Ex: Nao consigo ouvir audios, mas pode me escrever!">
+                <label class="bcf-label" style="padding-top:.5rem">Imagem &#128247;</label>
+                <input class="bcf-input" id="notif-media-image" placeholder="Ex: Nao consigo ver imagens, mas pode me descrever!">
+                <label class="bcf-label" style="padding-top:.5rem">Video &#127916;</label>
+                <input class="bcf-input" id="notif-media-video" placeholder="Ex: Nao consigo assistir videos, mas pode me escrever!">
+                <label class="bcf-label" style="padding-top:.5rem">Documento &#128196;</label>
+                <input class="bcf-input" id="notif-media-document" placeholder="Ex: Nao consigo abrir documentos, mas pode me descrever!">
+                <label class="bcf-label" style="padding-top:.5rem">Sticker &#128515;</label>
+                <input class="bcf-input" id="notif-media-sticker" placeholder="Ex: Que simpatico! Posso te ajudar com alguma coisa?">
+              </div>
+            </div>
+
             <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
               <button class="btn-primary" onclick="saveNotifTemplates(this)">Salvar templates</button>
               <button style="font-size:.78rem;padding:.38rem .85rem;border-radius:var(--radius-sm);border:1px solid var(--border2);background:var(--surface);cursor:pointer;color:var(--text2);font-family:inherit;transition:background .12s" onclick="resetNotifTemplates()">&#8635; Restaurar textos padrao</button>
@@ -1507,6 +1673,28 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
 
           </div>
         </div>
+
+        <!-- Templates Personalizados -->
+        <div class="config-section" style="margin-top:1.25rem">
+          <div class="config-section-hdr ctpl-section-hdr">
+            <span>Templates Personalizados</span>
+            <button class="btn-new" onclick="openCustomTplModal(null)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Novo template
+            </button>
+          </div>
+          <div class="notif-info-bar" style="margin:1rem 1.25rem 0">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span>Crie mensagens prontas para reutilizar no dia a dia &mdash; respostas frequentes, avisos, promocoes e muito mais. Use as variaveis <strong>&#123;nome&#125;</strong>, <strong>&#123;data&#125;</strong> e <strong>&#123;hora&#125;</strong> para personalizar automaticamente.</span>
+          </div>
+          <div id="ctpl-list" class="ctpl-list">
+            <div class="ctpl-empty">
+              <div class="ctpl-empty-icon">&#128172;</div>
+              <div>Carregando...</div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- PANE: Avancado -->
@@ -1518,13 +1706,53 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
               <div class="config-key">Parametros de busca</div>
               <div class="config-val">
                 <div class="rag-params">
-                  <div class="rp-item"><label>Resultados (top_k)</label><input type="number" id="rag-top-k" class="rp-input" min="1" max="20" value="3"></div>
-                  <div class="rp-item"><label>Sim. minima (0-1)</label><input type="number" id="rag-min-sim" class="rp-input" min="0" max="1" step="0.05" value="0.75"></div>
-                  <div class="rp-item"><label>Tokens contexto</label><input type="number" id="rag-max-ctx" class="rp-input" min="100" max="3000" value="800"></div>
-                  <div class="rp-item"><label>Tamanho chunk</label><input type="number" id="rag-chunk-size" class="rp-input" min="50" max="1000" value="400"></div>
-                  <div class="rp-item"><label>Sobreposicao</label><input type="number" id="rag-chunk-overlap" class="rp-input" min="0" max="200" value="80"></div>
+                  <div class="rp-item">
+                    <label><span class="rp-label-icon">?</span> Resultados</label>
+                    <div class="rp-stepper">
+                      <button class="rp-btn" onclick="rpStep('rag-top-k',-1,1,20)">&#8722;</button>
+                      <input type="number" id="rag-top-k" class="rp-input" min="1" max="20" value="3">
+                      <button class="rp-btn" onclick="rpStep('rag-top-k',1,1,20)">&#43;</button>
+                    </div>
+                    <div class="rp-tooltip">Quantos trechos do conhecimento a IA consulta por mensagem. Mais = respostas mais ricas, porem mais lentas.</div>
+                  </div>
+                  <div class="rp-item">
+                    <label><span class="rp-label-icon">?</span> Similaridade</label>
+                    <div class="rp-stepper">
+                      <button class="rp-btn" onclick="rpStep('rag-min-sim',-0.05,0,1,2)">&#8722;</button>
+                      <input type="number" id="rag-min-sim" class="rp-input" min="0" max="1" step="0.05" value="0.75">
+                      <button class="rp-btn" onclick="rpStep('rag-min-sim',0.05,0,1,2)">&#43;</button>
+                    </div>
+                    <div class="rp-tooltip">Filtro de relevancia (0 a 1). Valor alto = so trechos muito parecidos com a pergunta. Baixo = aceita mais resultados, mas pode trazer conteudo fora do tema.</div>
+                  </div>
+                  <div class="rp-item">
+                    <label><span class="rp-label-icon">?</span> Tokens ctx</label>
+                    <div class="rp-stepper">
+                      <button class="rp-btn" onclick="rpStep('rag-max-ctx',-50,100,3000)">&#8722;</button>
+                      <input type="number" id="rag-max-ctx" class="rp-input" min="100" max="3000" value="800">
+                      <button class="rp-btn" onclick="rpStep('rag-max-ctx',50,100,3000)">&#43;</button>
+                    </div>
+                    <div class="rp-tooltip">Limite de tokens do conhecimento enviado para a IA. Mais tokens = mais contexto, porem maior uso da cota do Groq.</div>
+                  </div>
+                  <div class="rp-item">
+                    <label><span class="rp-label-icon">?</span> Chunk</label>
+                    <div class="rp-stepper">
+                      <button class="rp-btn" onclick="rpStep('rag-chunk-size',-50,50,1000)">&#8722;</button>
+                      <input type="number" id="rag-chunk-size" class="rp-input" min="50" max="1000" value="400">
+                      <button class="rp-btn" onclick="rpStep('rag-chunk-size',50,50,1000)">&#43;</button>
+                    </div>
+                    <div class="rp-tooltip">Tamanho de cada pedaco de texto ao indexar documentos. Chunks menores sao mais precisos; maiores preservam mais contexto.</div>
+                  </div>
+                  <div class="rp-item">
+                    <label><span class="rp-label-icon">?</span> Sobreposicao</label>
+                    <div class="rp-stepper">
+                      <button class="rp-btn" onclick="rpStep('rag-chunk-overlap',-10,0,200)">&#8722;</button>
+                      <input type="number" id="rag-chunk-overlap" class="rp-input" min="0" max="200" value="80">
+                      <button class="rp-btn" onclick="rpStep('rag-chunk-overlap',10,0,200)">&#43;</button>
+                    </div>
+                    <div class="rp-tooltip">Quantos tokens um chunk compartilha com o seguinte. Evita cortar frases no meio e perde o sentido entre trechos.</div>
+                  </div>
                 </div>
-                <button class="btn-primary" style="width:fit-content" onclick="saveRagConfig(this)">Salvar parametros</button>
+                <button class="btn-primary" style="width:fit-content;margin-top:.25rem" onclick="saveRagConfig(this)">Salvar parametros</button>
               </div>
             </div>
           </div>
@@ -1564,8 +1792,10 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         </div>
       </div>
 
-      <!-- PANE: Status do Sistema -->
-      <div id="cfg-pane-status" class="cfg-pane">
+      <!-- PANE: Monitoramento -->
+      <div id="cfg-pane-monitoramento" class="cfg-pane">
+
+        <!-- Saude dos servicos -->
         <div class="config-section">
           <div class="config-section-hdr status-hdr-row">
             <span>Status do Sistema</span>
@@ -1591,6 +1821,67 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
             <span>Proxima atualizacao em <strong id="status-next-refresh">30</strong>s</span>
           </div>
         </div>
+
+        <!-- Registros — acordeao colapsavel -->
+        <div class="config-section" style="margin-top:1.25rem">
+          <div class="config-section-hdr log-section-hdr">
+            <div style="display:flex;align-items:center;gap:.75rem">
+              <span>Registros</span>
+              <div class="log-count-row">
+                <span class="log-count-chip log-count-error" id="log-count-error">—</span>
+                <span class="log-count-chip log-count-warn"  id="log-count-warn">—</span>
+              </div>
+            </div>
+            <button class="log-accordion-btn" id="log-acc-btn" onclick="toggleLogAccordion()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              Ver registros
+              <svg class="acc-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+
+          <!-- Corpo colapsavel -->
+          <div class="log-accordion-body" id="log-accordion-body">
+            <div class="log-filter-row">
+              <button class="log-filter-btn" data-lf="all"   data-lf-active="all"   onclick="setLogFilter(this,'all')">Todos</button>
+              <button class="log-filter-btn" data-lf="error"                         onclick="setLogFilter(this,'error')">&#128308; Erros</button>
+              <button class="log-filter-btn" data-lf="warn"                          onclick="setLogFilter(this,'warn')">&#128993; Avisos</button>
+              <button class="log-filter-btn" data-lf="info"                          onclick="setLogFilter(this,'info')">&#128994; Info</button>
+              <input class="log-search" id="log-search" type="text" placeholder="&#128269; Buscar nos logs..." oninput="_schedLogSearch()">
+              <select id="log-limit" onchange="loadErrorLogs()" title="Quantidade de registros exibidos"
+                style="padding:.28rem .55rem;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:.78rem;font-family:inherit;background:var(--surface);color:var(--text2);cursor:pointer;outline:none;transition:border-color .15s">
+                <option value="5"  selected>5 ultimos</option>
+                <option value="10">10 ultimos</option>
+                <option value="20">20 ultimos</option>
+                <option value="50">50 ultimos</option>
+              </select>
+              <div style="margin-left:auto;display:flex;gap:.4rem">
+                <button class="btn-export" onclick="exportLogs()" title="Baixar debug.log">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Exportar
+                </button>
+                <button class="action-btn close-protocol-btn" id="btn-clear-logs" onclick="clearLogs()">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                  Limpar
+                </button>
+              </div>
+            </div>
+            <div style="overflow-x:auto">
+              <table class="log-table">
+                <thead>
+                  <tr><th>Hora</th><th>Nivel</th><th>Modulo</th><th>Mensagem</th></tr>
+                </thead>
+                <tbody id="log-tbody">
+                  <tr><td colspan="4" class="log-empty">Clique em "Ver registros" para carregar.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="log-footer">
+              <span id="log-footer-count">—</span>
+              <span id="log-footer-meta">—</span>
+            </div>
+          </div>
+        </div>
+
       </div>
 
     </section>
@@ -1670,6 +1961,10 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         <div class="form-group"><label>Data</label><input type="date" id="edit-date" required></div>
         <div class="form-group"><label>Hora</label><input type="time" id="edit-time" required></div>
       </div>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--text2);margin-bottom:.75rem;cursor:pointer">
+        <input type="checkbox" id="edit-notify" checked style="accent-color:var(--primary)">
+        Notificar cliente via WhatsApp sobre a remarcacao
+      </label>
       <div class="modal-footer">
         <button type="button" class="btn-secondary" onclick="closeEditModal()">Cancelar</button>
         <button type="submit" class="btn-primary" id="btn-submit-edit">Salvar alteracoes</button>
@@ -1691,6 +1986,10 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         <div class="form-group"><label>Data</label><input type="date" id="new-date" required></div>
         <div class="form-group"><label>Hora</label><input type="time" id="new-time" required></div>
       </div>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--text2);margin-bottom:.75rem;cursor:pointer">
+        <input type="checkbox" id="new-notify" checked style="accent-color:var(--primary)">
+        Notificar cliente via WhatsApp sobre o agendamento
+      </label>
       <div class="modal-footer">
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancelar</button>
         <button type="submit" class="btn-primary" id="btn-submit-new">Confirmar agendamento</button>
@@ -1747,6 +2046,59 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         <button type="submit" class="btn-primary" id="btn-submit-faq">Salvar</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- MODAL TEMPLATE PERSONALIZADO -->
+<div id="modal-custom-tpl" style="display:none;position:fixed;z-index:1000;width:520px;max-width:92vw;background:var(--surface);color:var(--text);border-radius:var(--radius);box-shadow:var(--shadow-lg);border:1px solid var(--border)">
+  <div class="modal-drag-handle" id="modal-custom-tpl-handle">
+    <h2 class="modal-title" id="custom-tpl-modal-title">Novo Template</h2>
+    <span class="modal-drag-hint"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg> Arrastar</span>
+  </div>
+  <div class="modal-body">
+    <form id="form-custom-tpl" onsubmit="submitCustomTpl(event)">
+      <input type="hidden" id="custom-tpl-edit-id" value="">
+      <div class="form-group">
+        <label>Nome do template <span style="color:#dc2626">*</span></label>
+        <input type="text" id="custom-tpl-name" placeholder="Ex: Confirmacao de consulta, Aviso de atraso..." required>
+      </div>
+      <div class="form-group" style="margin-bottom:.4rem">
+        <label>Variaveis disponiveis</label>
+        <div class="notif-var-row" style="margin-bottom:0">
+          <span class="notif-var-chip" onclick="insertVar('custom-tpl-content','{{nome}}')">&#123;nome&#125;</span>
+          <span class="notif-var-chip" onclick="insertVar('custom-tpl-content','{{data}}')">&#123;data&#125;</span>
+          <span class="notif-var-chip" onclick="insertVar('custom-tpl-content','{{hora}}')">&#123;hora&#125;</span>
+          <span class="notif-var-chip" onclick="insertVar('custom-tpl-content','{{telefone}}')">&#123;telefone&#125;</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Mensagem <span style="color:#dc2626">*</span></label>
+        <textarea id="custom-tpl-content" class="notif-ta" rows="7"
+          placeholder="Ex: Ola, {{nome}}! Passando para confirmar sua consulta no dia {{data}} as {{hora}}h. Te esperamos!"
+          oninput="updateCharCount(this,'custom-tpl-cc')" required></textarea>
+        <div class="notif-char-count" id="custom-tpl-cc">0 caracteres</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" onclick="closeCustomTplModal()">Cancelar</button>
+        <button type="submit" class="btn-primary" id="btn-submit-custom-tpl">Salvar template</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL CONFIRMAR EXCLUSAO TEMPLATE -->
+<div id="modal-confirm-ctpl-del" class="confirm-overlay">
+  <div class="confirm-backdrop" onclick="document.getElementById('modal-confirm-ctpl-del').classList.remove('open')"></div>
+  <div class="confirm-box">
+    <div class="confirm-icon" style="background:#fef2f2;color:#dc2626;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+    </div>
+    <h3 class="confirm-title">Excluir template?</h3>
+    <p class="confirm-msg" id="ctpl-del-msg">Esta acao nao pode ser desfeita.</p>
+    <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+      <button class="btn-secondary" onclick="document.getElementById('modal-confirm-ctpl-del').classList.remove('open')">Cancelar</button>
+      <button class="btn-primary" id="btn-confirm-ctpl-del" style="background:#dc2626;">Sim, excluir</button>
+    </div>
   </div>
 </div>
 
@@ -1859,7 +2211,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     secs = 30;
     if (page === "config") loadConfigPage();
     if (page === "clientes") loadClients();
-    if (page === "chat") {{ loadChatContacts(); startChatPoll(); }} else {{ stopChatPoll(); }}
+    if (page === "chat") {{ loadChatContacts(); loadGlobalIAStatus(); startChatPoll(); }} else {{ stopChatPoll(); }}
     // Ajusta overflow do main para o chat (layout fixo)
     const mainEl = document.querySelector("main");
     if (mainEl) mainEl.style.overflow = page === "chat" ? "hidden" : "";
@@ -1963,7 +2315,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   async function submitEdit(e){{
     e.preventDefault();const btn=document.getElementById("btn-submit-edit");btn.disabled=true;btn.textContent="Salvando...";
     const m=document.getElementById("modal-edit");
-    const res=await fetch("/admin/edit",{{method:"POST",headers:authHeaders(),body:JSON.stringify({{old_phone:m.dataset.oldPhone,old_date:m.dataset.oldDate,old_time:m.dataset.oldTime,name:document.getElementById("edit-name").value.trim(),phone:document.getElementById("edit-phone").value.trim(),date:document.getElementById("edit-date").value,time:document.getElementById("edit-time").value}})}});
+    const res=await fetch("/admin/edit",{{method:"POST",headers:authHeaders(),body:JSON.stringify({{old_phone:m.dataset.oldPhone,old_date:m.dataset.oldDate,old_time:m.dataset.oldTime,name:document.getElementById("edit-name").value.trim(),phone:document.getElementById("edit-phone").value.trim(),date:document.getElementById("edit-date").value,time:document.getElementById("edit-time").value,notify:document.getElementById("edit-notify").checked}})}});
     if(res.ok){{closeEditModal();showToast("Agendamento atualizado!");setTimeout(()=>location.reload(),1200);}}
     else{{btn.disabled=false;btn.textContent="Salvar alteracoes";showToast("Erro ao atualizar.",false);}}
   }}
@@ -1986,7 +2338,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   function closeModal(){{document.getElementById("modal-new").style.display="none";isPaused=false;secs=30;}}
   async function submitNew(e){{
     e.preventDefault();const btn=document.getElementById("btn-submit-new");btn.disabled=true;btn.textContent="Salvando...";
-    const res=await fetch("/admin/appointments",{{method:"POST",headers:authHeaders(),body:JSON.stringify({{name:document.getElementById("new-name").value.trim(),phone:document.getElementById("new-phone").value.trim(),date:document.getElementById("new-date").value,time:document.getElementById("new-time").value}})}});
+    const res=await fetch("/admin/appointments",{{method:"POST",headers:authHeaders(),body:JSON.stringify({{name:document.getElementById("new-name").value.trim(),phone:document.getElementById("new-phone").value.trim(),date:document.getElementById("new-date").value,time:document.getElementById("new-time").value,notify:document.getElementById("new-notify").checked}})}});
     if(res.ok){{closeModal();showToast("Agendamento criado!");setTimeout(()=>location.reload(),1200);}}
     else{{btn.disabled=false;btn.textContent="Confirmar agendamento";showToast("Erro ao criar agendamento.",false);}}
   }}
@@ -2009,14 +2361,72 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     document.getElementById("pending-section").style.display=ip?"":"none";
     if(ip)renderPending();else applyFilter();
   }}
+  /* ── Paginação ─────────────────────────────────────────────────────────── */
+  const PAGE_SIZE = 25;
+  let _pgCur = 1;
+  let _pgVisible = [];   // linhas que passaram pelos filtros (referências aos <tr>)
+
+  function onDateFilterChange(){{
+    const from=document.getElementById("filter-date-from").value;
+    const to=document.getElementById("filter-date-to").value;
+    const btn=document.getElementById("btn-clear-dates");
+    if(from||to)btn.classList.add("visible"); else btn.classList.remove("visible");
+    applyFilter();
+  }}
+  function clearDateFilter(){{
+    document.getElementById("filter-date-from").value="";
+    document.getElementById("filter-date-to").value="";
+    document.getElementById("btn-clear-dates").classList.remove("visible");
+    applyFilter();
+  }}
+
   function applyFilter(){{
     if(cur==="pending")return;
     const q=document.getElementById("search").value.toLowerCase();
+    const from=document.getElementById("filter-date-from").value;
+    const to=document.getElementById("filter-date-to").value;
     const fn=FILTERS[cur]||(()=>true);
+    _pgVisible=[];
     document.querySelectorAll("#tbody tr[data-status]").forEach(row=>{{
-      const ok=fn(row)&&(!q||row.textContent.toLowerCase().includes(q));
-      row.style.display=ok?"":"none";
+      const d=row.dataset.date||"";
+      const dateOk=(!from||d>=from)&&(!to||d<=to);
+      if(fn(row)&&dateOk&&(!q||row.textContent.toLowerCase().includes(q))){{
+        _pgVisible.push(row);
+      }}
+      row.style.display="none";
     }});
+    goPage(1);
+  }}
+
+  function goPage(p){{
+    const total=_pgVisible.length;
+    const pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+    _pgCur=Math.min(Math.max(p,1),pages);
+    const start=(_pgCur-1)*PAGE_SIZE;
+    const end=start+PAGE_SIZE;
+    _pgVisible.forEach((row,i)=>{{ row.style.display=(i>=start&&i<end)?"":"none"; }});
+    _renderPagination(total,pages);
+  }}
+
+  function _renderPagination(total,pages){{
+    const info=document.getElementById("pg-info");
+    const btns=document.getElementById("pg-btns");
+    if(total===0){{ info.textContent="Nenhum registro encontrado"; btns.innerHTML=""; return; }}
+    const start=(_pgCur-1)*PAGE_SIZE+1;
+    const end=Math.min(_pgCur*PAGE_SIZE,total);
+    info.textContent=`Exibindo ${{start}}–${{end}} de ${{total}} registro${{total!==1?"s":""}}`;
+    let html="";
+    html+=`<button class="pg-btn" onclick="goPage(${{_pgCur-1}})" ${{_pgCur===1?"disabled":""}}>&#8249;</button>`;
+    const WINDOW=2;
+    for(let i=1;i<=pages;i++){{
+      if(i===1||i===pages||Math.abs(i-_pgCur)<=WINDOW){{
+        html+=`<button class="pg-btn${{i===_pgCur?" active":""}}" onclick="goPage(${{i}})">${{i}}</button>`;
+      }} else if(Math.abs(i-_pgCur)===WINDOW+1){{
+        html+=`<span style="color:var(--muted);padding:0 .2rem">…</span>`;
+      }}
+    }}
+    html+=`<button class="pg-btn" onclick="goPage(${{_pgCur+1}})" ${{_pgCur===pages?"disabled":""}}>&#8250;</button>`;
+    btns.innerHTML=html;
   }}
 
   /* Theme */
@@ -2212,8 +2622,9 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     if (bt) bt.classList.add("active");
     if (pn) pn.classList.add("active");
     localStorage.setItem("cfgTab", tab);
-    if (tab === "status") {{
+    if (tab === "monitoramento") {{
       loadStatusData();
+      loadErrorLogs();
       _startStatusAutoRefresh();
     }} else {{
       _stopStatusAutoRefresh();
@@ -2223,7 +2634,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   async function loadConfigPage() {{
     const saved = localStorage.getItem("cfgTab") || "loja";
     switchCfgTab(saved);
-    await Promise.all([loadBotConfig(), loadBusinessHours(), loadFaqItems(), loadRagConfig(), loadRagDocs(), loadRagLogs(), loadSystemPrompt()]);
+    await Promise.all([loadBotConfig(), loadBusinessHours(), loadFaqItems(), loadRagConfig(), loadRagDocs(), loadRagLogs(), loadSystemPrompt(), loadCustomTpls()]);
     _attachDirtyListeners();
     if (!window._cfgCtrlSAttached) {{
       window._cfgCtrlSAttached = true;
@@ -2529,6 +2940,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       ["notif-ta-lembrete-hora", "msg_lembrete_hora", "notif-cc-lembrete-hora"],
       ["notif-ta-cancelamento",  "msg_cancelamento",  "notif-cc-cancelamento"],
       ["notif-ta-retorno",       "msg_retorno",       "notif-cc-retorno"],
+      ["notif-ta-campanha",      "campaign_message",  "notif-cc-campanha"],
     ];
     pairs.forEach(([taId, key, ccId]) => {{
       const ta = document.getElementById(taId);
@@ -2537,16 +2949,41 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       const cc = document.getElementById(ccId);
       if (cc) updateCharCount(ta, ccId);
     }});
+    // Campos de input simples
+    const setInput = (id, val) => {{ const el = document.getElementById(id); if (el) el.value = val || ""; }};
+    setInput("notif-confirmation-type",    d.confirmation_appointment_type);
+    setInput("notif-confirmation-address", d.confirmation_address);
+    setInput("notif-confirmation-footer",  d.confirmation_footer);
+    setInput("notif-media-audio",    d.msg_media_audio);
+    setInput("notif-media-image",    d.msg_media_image);
+    setInput("notif-media-video",    d.msg_media_video);
+    setInput("notif-media-document", d.msg_media_document);
+    setInput("notif-media-sticker",  d.msg_media_sticker);
+    // Toggle campanha
+    const campEl = document.getElementById("notif-campaign-enabled");
+    if (campEl) campEl.checked = d.campaign_enabled !== false;
   }}
 
   async function saveNotifTemplates(btn) {{
     setBtnLoading(btn, true);
-    const g = id => document.getElementById(id)?.value || "";
+    const g  = id => document.getElementById(id)?.value || "";
     const body = {{
       msg_lembrete_dia:  g("notif-ta-lembrete-dia"),
       msg_lembrete_hora: g("notif-ta-lembrete-hora"),
       msg_cancelamento:  g("notif-ta-cancelamento"),
       msg_retorno:       g("notif-ta-retorno"),
+      // Confirmação de agendamento
+      confirmation_appointment_type: g("notif-confirmation-type"),
+      confirmation_address:          g("notif-confirmation-address"),
+      confirmation_footer:           g("notif-confirmation-footer"),
+      // Campanha
+      campaign_message: g("notif-ta-campanha"),
+      // Respostas a mídias
+      msg_media_audio:    g("notif-media-audio"),
+      msg_media_image:    g("notif-media-image"),
+      msg_media_video:    g("notif-media-video"),
+      msg_media_document: g("notif-media-document"),
+      msg_media_sticker:  g("notif-media-sticker"),
     }};
     try {{
       const r = await fetch("/admin/bot-config", {{method:"POST",headers:authHeaders(),body:JSON.stringify(body)}});
@@ -2554,6 +2991,145 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       else showToast("Erro ao salvar.", false);
     }} catch(e) {{ showToast("Erro: " + e.message, false); }}
     setBtnLoading(btn, false);
+  }}
+
+  async function saveCampaignEnabled() {{
+    const enabled = document.getElementById("notif-campaign-enabled")?.checked ?? true;
+    try {{
+      await fetch("/admin/bot-config", {{
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({{ campaign_enabled: enabled }}),
+      }});
+      showToast(enabled ? "Campanha ativada!" : "Campanha desativada.");
+    }} catch(e) {{ showToast("Erro: " + e.message, false); }}
+  }}
+
+  /* ── Templates Personalizados ──────────────────────────────────────────── */
+  async function loadCustomTpls() {{
+    const list = document.getElementById("ctpl-list");
+    if (!list) return;
+    try {{
+      const r = await fetch("/admin/custom-templates", {{headers:{{"X-Admin-Token":ADMIN_TOKEN}}}});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const tpls = await r.json();
+      _renderCustomTpls(tpls);
+    }} catch(e) {{
+      list.innerHTML = '<div class="ctpl-empty"><div class="ctpl-empty-icon">&#9888;</div><div>Erro ao carregar templates.</div></div>';
+    }}
+  }}
+
+  function _renderCustomTpls(tpls) {{
+    const list = document.getElementById("ctpl-list");
+    if (!list) return;
+    if (!tpls.length) {{
+      list.innerHTML =
+        '<div class="ctpl-empty">'
+        + '<div class="ctpl-empty-icon">&#128172;</div>'
+        + '<div style="font-weight:600;color:var(--text)">Nenhum template ainda</div>'
+        + '<div style="font-size:.8rem;max-width:320px;text-align:center">Clique em <strong>Novo template</strong> para criar sua primeira mensagem reutilizavel.</div>'
+        + '</div>';
+      return;
+    }}
+    list.innerHTML = tpls.map(t => {{
+      const preview = _escHtml((t.content || "").replace(/\\n/g, " "));
+      const name    = _escHtml(t.name);
+      const dataStr = t.updated_at ? new Date(t.updated_at).toLocaleDateString("pt-BR") : "";
+      return '<div class="ctpl-card" data-id="' + t.id + '">'
+        + '<div class="ctpl-card-hdr">'
+        +   '<div class="ctpl-card-icon">&#128172;</div>'
+        +   '<div class="ctpl-card-name" title="' + name + '">' + name + '</div>'
+        +   (dataStr ? '<span style="font-size:.67rem;color:var(--muted);white-space:nowrap">' + dataStr + '</span>' : '')
+        +   '<div class="ctpl-card-actions">'
+        +     '<button class="action-btn edit-btn" onclick="openCustomTplModal(' + JSON.stringify(t) + ')">'
+        +       '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
+        +       ' Editar</button>'
+        +     '<button class="action-btn cancel-btn" onclick="confirmDeleteCustomTpl(' + t.id + ', ' + JSON.stringify(name) + ')">'
+        +       '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>'
+        +       ' Excluir</button>'
+        +   '</div>'
+        + '</div>'
+        + '<div class="ctpl-card-body">'
+        +   '<div class="ctpl-preview">' + preview + '</div>'
+        + '</div>'
+        + '</div>';
+    }}).join("");
+  }}
+
+  function openCustomTplModal(tpl) {{
+    const m     = document.getElementById("modal-custom-tpl");
+    const title = document.getElementById("custom-tpl-modal-title");
+    const idEl  = document.getElementById("custom-tpl-edit-id");
+    const nameEl= document.getElementById("custom-tpl-name");
+    const taEl  = document.getElementById("custom-tpl-content");
+    document.getElementById("form-custom-tpl").reset();
+    if (tpl && tpl.id) {{
+      title.textContent    = "Editar Template";
+      idEl.value           = tpl.id;
+      nameEl.value         = tpl.name || "";
+      taEl.value           = tpl.content || "";
+    }} else {{
+      title.textContent    = "Novo Template";
+      idEl.value           = "";
+    }}
+    updateCharCount(taEl, "custom-tpl-cc");
+    m.style.display = "block";
+    if (!m._positioned) {{
+      m.style.left = Math.max(0,(window.innerWidth  - m.offsetWidth ) / 2) + "px";
+      m.style.top  = Math.max(0,(window.innerHeight - m.offsetHeight) / 2) + "px";
+      m._positioned = true;
+    }}
+    setTimeout(() => nameEl.focus(), 80);
+  }}
+
+  function closeCustomTplModal() {{
+    document.getElementById("modal-custom-tpl").style.display = "none";
+  }}
+
+  async function submitCustomTpl(e) {{
+    e.preventDefault();
+    const btn     = document.getElementById("btn-submit-custom-tpl");
+    const editId  = document.getElementById("custom-tpl-edit-id").value;
+    const name    = document.getElementById("custom-tpl-name").value.trim();
+    const content = document.getElementById("custom-tpl-content").value.trim();
+    setBtnLoading(btn, true);
+    try {{
+      let r;
+      if (editId) {{
+        r = await fetch("/admin/custom-templates/" + editId,
+          {{method:"PUT", headers:authHeaders(), body:JSON.stringify({{name, content}})}});
+      }} else {{
+        r = await fetch("/admin/custom-templates",
+          {{method:"POST", headers:authHeaders(), body:JSON.stringify({{name, content}})}});
+      }}
+      if (r.ok) {{
+        closeCustomTplModal();
+        loadCustomTpls();
+        showToast(editId ? "Template atualizado!" : "Template criado!");
+      }} else {{
+        const err = await r.json().catch(() => ({{}}));
+        showToast("Erro: " + (err.detail || r.status), false);
+      }}
+    }} catch(ex) {{ showToast("Erro: " + ex.message, false); }}
+    setBtnLoading(btn, false);
+  }}
+
+  function confirmDeleteCustomTpl(id, name) {{
+    const msg = document.getElementById("ctpl-del-msg");
+    const btn = document.getElementById("btn-confirm-ctpl-del");
+    if (msg) msg.textContent = 'Excluir o template "' + name + '"? Esta acao nao pode ser desfeita.';
+    if (btn) btn.onclick = () => _doDeleteCustomTpl(id);
+    document.getElementById("modal-confirm-ctpl-del").classList.add("open");
+  }}
+
+  async function _doDeleteCustomTpl(id) {{
+    document.getElementById("modal-confirm-ctpl-del").classList.remove("open");
+    try {{
+      const r = await fetch("/admin/custom-templates/" + id,
+        {{method:"DELETE", headers:{{"X-Admin-Token":ADMIN_TOKEN}}}});
+      if (r.ok) {{ loadCustomTpls(); showToast("Template excluido."); }}
+      else showToast("Erro ao excluir.", false);
+    }} catch(e) {{ showToast("Erro: " + e.message, false); }}
   }}
 
   /* ── System Status ──────────────────────────────────────────────────────── */
@@ -2586,6 +3162,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       if (_statusCountdown <= 0) {{
         _statusCountdown = _STATUS_INTERVAL;
         loadStatusData();
+        loadErrorLogs();
       }}
     }}, 1000);
   }}
@@ -2646,7 +3223,134 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     _statusCountdown = _STATUS_INTERVAL;
     _updateNextRefreshLabel();
     await loadStatusData();
+    await loadErrorLogs();
     if (btn) {{ btn.disabled = false; btn.innerHTML = btn._origInner; }}
+  }}
+
+  /* ── Registros — acordeao ──────────────────────────────────────────────── */
+  let _logAccOpen = false;
+
+  function toggleLogAccordion() {{
+    _logAccOpen = !_logAccOpen;
+    const body = document.getElementById("log-accordion-body");
+    const btn  = document.getElementById("log-acc-btn");
+    if (!body || !btn) return;
+    if (_logAccOpen) {{
+      body.classList.add("open");
+      btn.classList.add("open");
+      btn.querySelector("svg:first-of-type + svg, svg.acc-arrow") && (btn.querySelector(".acc-arrow") || btn.querySelectorAll("svg")[1]);
+      loadErrorLogs();
+    }} else {{
+      body.classList.remove("open");
+      btn.classList.remove("open");
+    }}
+  }}
+
+  /* ── Log de Erros ───────────────────────────────────────────────────────── */
+  let _logFilter      = "all";
+  let _logSearchTimer = null;
+
+  function setLogFilter(btn, lvl) {{
+    _logFilter = lvl;
+    // Remove active de todos, aplica no clicado
+    document.querySelectorAll(".log-filter-btn").forEach(b => delete b.dataset.lfActive);
+    btn.dataset.lfActive = lvl;
+    loadErrorLogs();
+  }}
+
+  function _schedLogSearch() {{
+    clearTimeout(_logSearchTimer);
+    _logSearchTimer = setTimeout(loadErrorLogs, 380);
+  }}
+
+  async function loadErrorLogs() {{
+    if (!_logAccOpen) return;          // só carrega quando o acordeao esta aberto
+    const tbody = document.getElementById("log-tbody");
+    if (!tbody) return;
+    const search = (document.getElementById("log-search")?.value || "").trim();
+    const limit  = document.getElementById("log-limit")?.value || "5";
+    const params = new URLSearchParams({{ level: _logFilter, limit }});
+    if (search) params.set("search", search);
+    try {{
+      const r = await fetch("/admin/error-logs?" + params, {{ headers: {{"X-Admin-Token": ADMIN_TOKEN}} }});
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      _renderLogTable(data);
+    }} catch(e) {{
+      if (tbody) tbody.innerHTML =
+        '<tr><td colspan="4" class="log-empty" style="color:#dc2626">Erro ao carregar logs: '
+        + _escHtml(e.message) + '</td></tr>';
+    }}
+  }}
+
+  function _renderLogTable(data) {{
+    const tbody  = document.getElementById("log-tbody");
+    const ceEl   = document.getElementById("log-count-error");
+    const cwEl   = document.getElementById("log-count-warn");
+    const fcEl   = document.getElementById("log-footer-count");
+    const fmEl   = document.getElementById("log-footer-meta");
+    if (!tbody) return;
+
+    // Contadores no header
+    if (ceEl) ceEl.textContent = (data.count_error || 0) + " erro" + (data.count_error !== 1 ? "s" : "");
+    if (cwEl) cwEl.textContent = (data.count_warn  || 0) + " aviso" + (data.count_warn  !== 1 ? "s" : "");
+
+    const entries = data.entries || [];
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    // Rodapé
+    if (fcEl) fcEl.textContent = "Exibindo " + entries.length
+      + " de " + (data.total_lines || 0) + " linhas"
+      + (data.last_error_at ? " · Ultimo erro: " + data.last_error_at : "");
+    if (fmEl) fmEl.textContent = "Arquivo: " + (data.log_size_kb || 0) + " KB";
+
+    if (!entries.length) {{
+      tbody.innerHTML = '<tr><td colspan="4" class="log-empty">Nenhuma entrada encontrada para o filtro selecionado.</td></tr>';
+      return;
+    }}
+
+    const icons = {{ ERROR: "🔴", WARN: "🟡", INFO: "🔵" }};
+    tbody.innerHTML = entries.map(e => {{
+      const timeLabel = (e.date && e.date !== todayStr) ? e.date + " " + e.time : e.time;
+      return '<tr>'
+        + '<td class="log-time">'  + _escHtml(timeLabel) + '</td>'
+        + '<td><span class="log-level ' + (e.level || "INFO") + '">'
+        +   (icons[e.level] || "⚪") + " " + (e.level || "—") + '</span></td>'
+        + '<td><span class="log-module">' + _escHtml(e.module || "SYSTEM") + '</span></td>'
+        + '<td class="log-msg">'   + _escHtml(e.message) + '</td>'
+        + '</tr>';
+    }}).join("");
+  }}
+
+  function _escHtml(s) {{
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }}
+
+  async function clearLogs() {{
+    if (!confirm("Apagar todo o arquivo de log?\\n\\nEsta acao nao pode ser desfeita.")) return;
+    const btn = document.getElementById("btn-clear-logs");
+    if (btn) {{ btn.disabled = true; }}
+    try {{
+      const r = await fetch("/admin/error-logs/clear",
+        {{ method: "POST", headers: {{"X-Admin-Token": ADMIN_TOKEN}} }});
+      if (r.ok) {{ showToast("Log limpo com sucesso!"); loadErrorLogs(); }}
+      else       showToast("Erro ao limpar o log.", false);
+    }} catch(e) {{ showToast("Erro: " + e.message, false); }}
+    if (btn) {{ btn.disabled = false; }}
+  }}
+
+  function exportLogs() {{
+    // Abre o endpoint /debug em nova aba para download
+    const a = document.createElement("a");
+    a.href     = "/debug";
+    a.target   = "_blank";
+    a.download = "debug_" + new Date().toISOString().slice(0,10) + ".log";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }}
 
   function resetNotifTemplates() {{
@@ -2694,6 +3398,15 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     const enabled = document.getElementById("rag-enabled").checked;
     await fetch("/admin/rag/config", {{method:"POST",headers:authHeaders(),body:JSON.stringify({{enabled}})}});
     showToast(enabled ? "RAG ativado." : "RAG desativado.");
+  }}
+
+  function rpStep(id, delta, min, max, decimals=0) {{
+    const el = document.getElementById(id);
+    if (!el) return;
+    let val = parseFloat(el.value) + delta;
+    val = Math.min(max, Math.max(min, val));
+    el.value = decimals ? val.toFixed(decimals) : String(Math.round(val));
+    markDirty("avancado");
   }}
 
   async function saveRagConfig(btn) {{
@@ -3256,9 +3969,9 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     document.addEventListener("mouseup", () => {{ if(drag){{ drag=false; document.body.style.userSelect=""; }} }});
   }})();
 
-  /* Drag modal-doc and modal-faq */
+  /* Drag modal-doc, modal-faq e modal-custom-tpl */
   (function(){{
-    [["modal-doc","modal-doc-handle"],["modal-faq","modal-faq-handle"]].forEach(([mid,hid])=>{{
+    [["modal-doc","modal-doc-handle"],["modal-faq","modal-faq-handle"],["modal-custom-tpl","modal-custom-tpl-handle"]].forEach(([mid,hid])=>{{
       const m=document.getElementById(mid),h=document.getElementById(hid);
       if(!m||!h)return;let drag=false,ox=0,oy=0;
       h.addEventListener("mousedown",e=>{{drag=true;const r=m.getBoundingClientRect();ox=e.clientX-r.left;oy=e.clientY-r.top;document.body.style.userSelect="none";}});
@@ -3402,9 +4115,6 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     var phoneEl  = document.getElementById("conv-phone");
     if (nameEl)  nameEl.textContent  = name;
     if (phoneEl) phoneEl.textContent = (contact && contact.display_phone) || "";
-    // Atualiza badge IA
-    var iaEnabled = !contact || contact.ia_enabled !== false;
-    _updateIABadge(iaEnabled);
     // Carrega mensagens
     await loadChatMessages(phone, true);
     // Marca como lida
@@ -3414,17 +4124,6 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     if (inputEl) inputEl.focus();
   }}
 
-  function _updateIABadge(enabled) {{
-    var badge = document.getElementById("conv-ia-badge");
-    var label = document.getElementById("conv-ia-label");
-    var btn   = document.getElementById("btn-ia-toggle");
-    var warn  = document.getElementById("chat-ia-warning-bar");
-    if (!badge) return;
-    badge.className = "chat-ia-badge " + (enabled ? "chat-ia-on" : "chat-ia-off");
-    if (label) label.textContent = enabled ? "IA ativa" : "IA pausada";
-    if (btn)   {{ btn.className = "btn-ia-toggle " + (enabled ? "pause" : "resume"); btn.textContent = enabled ? "Pausar IA" : "Retomar IA"; }}
-    if (warn)  warn.style.display = enabled ? "none" : "flex";
-  }}
 
   async function loadChatMessages(phone, scroll) {{
     var area = document.getElementById("chat-messages-area");
@@ -3500,24 +4199,6 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     if (input) input.focus();
   }}
 
-  async function toggleChatIA() {{
-    if (!_currentChatPhone) return;
-    var contact   = _chatContacts.find(function(c){{ return c.phone === _currentChatPhone; }});
-    var newEnabled = !(contact && contact.ia_enabled !== false ? true : false);
-    // Se contact.ia_enabled === false => estava desligado => newEnabled = true
-    if (contact) newEnabled = !(contact.ia_enabled !== false);
-    var r = await fetch("/admin/chat/ia-mode/" + encodeURIComponent(_currentChatPhone), {{
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({{ia_enabled: newEnabled}})
-    }});
-    if (r.ok) {{
-      if (contact) contact.ia_enabled = newEnabled;
-      _updateIABadge(newEnabled);
-      renderChatContacts();
-      showToast(newEnabled ? "IA retomada para este contato." : "IA pausada — voce esta no controle.");
-    }} else showToast("Erro ao alterar modo da IA.", false);
-  }}
 
   function chatKeydown(e) {{
     if (e.key === "Enter" && !e.shiftKey) {{ e.preventDefault(); sendChatMsg(); }}
@@ -3528,12 +4209,129 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     el.style.height = Math.min(el.scrollHeight, 130) + "px";
   }}
 
+  /* ── Chat SSE (tempo real) ─────────────────────────────────────────────── */
+  var _chatSSE = null;
+  var _chatSSERetryTimer = null;
+  var _chatSSEActive = false;
+
   function startChatPoll() {{
+    // SSE tem prioridade; poll é fallback se SSE não suportado/falhou
     stopChatPoll();
-    _chatPollTimer = setInterval(loadChatContacts, 3000);
+    _chatSSEActive = true;
+    _connectChatSSE();
   }}
+
   function stopChatPoll() {{
-    if (_chatPollTimer) {{ clearInterval(_chatPollTimer); _chatPollTimer = null; }}
+    _chatSSEActive = false;
+    if (_chatPollTimer)  {{ clearInterval(_chatPollTimer); _chatPollTimer = null; }}
+    if (_chatSSERetryTimer) {{ clearTimeout(_chatSSERetryTimer); _chatSSERetryTimer = null; }}
+    if (_chatSSE) {{ _chatSSE.close(); _chatSSE = null; }}
+  }}
+
+  function _connectChatSSE() {{
+    if (!_chatSSEActive) return;
+    if (_chatSSE) {{ _chatSSE.close(); _chatSSE = null; }}
+    try {{
+      _chatSSE = new EventSource("/admin/chat/stream?token=" + encodeURIComponent(ADMIN_TOKEN));
+
+      _chatSSE.addEventListener("connected", function() {{
+        // SSE ativo — cancela fallback poll se houver
+        if (_chatPollTimer) {{ clearInterval(_chatPollTimer); _chatPollTimer = null; }}
+        loadChatContacts();
+      }});
+
+      _chatSSE.addEventListener("new_message", async function(e) {{
+        var data;
+        try {{ data = JSON.parse(e.data); }} catch(_) {{ return; }}
+        // Atualiza lista de contatos (inclui badge de nao lidas)
+        await loadChatContacts();
+        // Se a conversa aberta é do remetente, carrega mensagens novas
+        if (_currentChatPhone && _currentChatPhone === data.phone) {{
+          await loadChatMessages(_currentChatPhone, false);
+          // Marca como lida automaticamente
+          await fetch("/admin/chat/read/" + encodeURIComponent(_currentChatPhone), {{method:"POST",headers:authHeaders()}});
+          var contact = _chatContacts.find(function(c){{ return c.phone === _currentChatPhone; }});
+          if (contact) {{ contact.unread_count = 0; renderChatContacts(); }}
+        }}
+      }});
+
+      _chatSSE.onerror = function() {{
+        _chatSSE.close(); _chatSSE = null;
+        if (!_chatSSEActive) return;
+        // Fallback: poll a cada 5s enquanto SSE está reconectando
+        if (!_chatPollTimer) _chatPollTimer = setInterval(loadChatContacts, 5000);
+        // Tenta reconectar SSE em 6s
+        _chatSSERetryTimer = setTimeout(_connectChatSSE, 6000);
+      }};
+    }} catch(_) {{
+      // Browser sem suporte a EventSource — poll permanente
+      if (!_chatPollTimer) _chatPollTimer = setInterval(loadChatContacts, 4000);
+    }}
+  }}
+
+  /* ── IA Global Toggle ───────────────────────────────────────────────────── */
+  let _iaGlobalEnabled = true;
+
+  async function loadGlobalIAStatus() {{
+    try {{
+      const r = await fetch("/admin/ia-global", {{headers:{{"X-Admin-Token":ADMIN_TOKEN}}}});
+      if (!r.ok) return;
+      const d = await r.json();
+      _iaGlobalEnabled = d.ia_enabled !== false;
+      _applyGlobalIAUI(_iaGlobalEnabled);
+    }} catch(e) {{ /* silencioso — nao bloqueia o chat */ }}
+  }}
+
+  function _applyGlobalIAUI(enabled) {{
+    const btn    = document.getElementById("global-ia-btn");
+    const banner = document.getElementById("ia-global-banner");
+    const txt    = document.getElementById("ia-global-banner-txt");
+    if (btn) {{
+      btn.classList.toggle("ia-on",  enabled);
+      btn.classList.toggle("ia-off", !enabled);
+      btn.title = enabled
+        ? "IA ativa — clique para pausar globalmente"
+        : "IA pausada — clique para retomar";
+    }}
+    if (banner) {{
+      banner.className = "ia-global-banner " + (enabled ? "ia-on" : "ia-off");
+    }}
+    if (txt) {{
+      txt.innerHTML = enabled
+        ? "IA ativa &mdash; respondendo automaticamente"
+        : "&#9888;&#65039; IA pausada &mdash; nenhuma resposta automatica";
+    }}
+  }}
+
+  async function toggleGlobalIA() {{
+    const novo = !_iaGlobalEnabled;
+    // Feedback imediato
+    _iaGlobalEnabled = novo;
+    _applyGlobalIAUI(novo);
+    try {{
+      const r = await fetch("/admin/ia-global", {{
+        method:  "POST",
+        headers: authHeaders(),
+        body:    JSON.stringify({{ia_enabled: novo}}),
+      }});
+      if (r.ok) {{
+        showToast(
+          novo
+            ? "&#129302; IA retomada — respondendo automaticamente"
+            : "&#9209;&#65039; IA pausada — sem respostas automaticas",
+          novo
+        );
+      }} else {{
+        // Reverte se falhar
+        _iaGlobalEnabled = !novo;
+        _applyGlobalIAUI(!novo);
+        showToast("Erro ao alterar IA global.", false);
+      }}
+    }} catch(e) {{
+      _iaGlobalEnabled = !novo;
+      _applyGlobalIAUI(!novo);
+      showToast("Erro: " + e.message, false);
+    }}
   }}
 
   /* Init */

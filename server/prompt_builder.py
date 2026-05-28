@@ -79,7 +79,12 @@ def _secao_identidade(
         f"- Mensagens curtas e objetivas — sem textos longos\n"
         f'- Use expressões simpáticas como "Claro!", "Com certeza!", "Fico feliz em ajudar!"\n'
         f"- Nunca use emojis\n"
-        f"- Aguarde o cliente informar qual serviço deseja — nunca pergunte diretamente qual serviço ele quer"
+        f"- Aguarde o cliente informar qual serviço deseja — nunca pergunte diretamente qual serviço ele quer\n"
+        f"\n"
+        f"TOKEN [BREAK] — REGRA ABSOLUTA:\n"
+        f"- [BREAK] é o delimitador que separa mensagens distintas no WhatsApp.\n"
+        f"- Sempre que uma instrução contiver [BREAK], você DEVE escrever o texto [BREAK] literalmente na sua resposta, exatamente onde indicado.\n"
+        f"- NUNCA omita, substitua ou ignore o token [BREAK]. NUNCA junte em uma só frase conteúdo que está separado por [BREAK] na instrução."
         f"{extra_block}"
     )
 
@@ -101,20 +106,21 @@ def _secao_saudacao(bot_name: str, store_name: str) -> str:
     )
 
 
-def _secao_convenio() -> str:
+def _secao_convenio(campaign_msg: str) -> str:
     """Resposta quando o cliente pergunta sobre convênio ou plano de saúde."""
+    msg_lower = campaign_msg[0].lower() + campaign_msg[1:]
     return (
         f"Se o cliente perguntou sobre CONVÊNIO ou plano de saúde "
         f"(sem pedir agendamento explicitamente):\n"
         f"- Use exatamente um [BREAK] separando dois blocos:\n"
-        f"  Não, mas {CAMPAIGN_MSG[0].lower() + CAMPAIGN_MSG[1:]}[BREAK]Você gostaria de agendar sua consulta?\n"
+        f"  Não, mas {msg_lower}[BREAK]Você gostaria de agendar sua consulta?\n"
         f"- AGUARDE a resposta. NÃO mostre horários antes da confirmação.\n"
         f"- Se o cliente confirmar (sim, quero, etc.): use APENAS um [BREAK]:\n"
         f"  Vou verificar a disponibilidade para hoje, só um momento.[BREAK]{SLOTS_TEMPLATE}"
     )
 
 
-def _secao_agendamento() -> str:
+def _secao_agendamento(campaign_msg: str) -> str:
     """Formato obrigatório de agendamento, regras de horários e coleta de dados."""
     return (
         f"Se o cliente mencionou CONSULTA ou agendar:\n"
@@ -123,7 +129,7 @@ def _secao_agendamento() -> str:
         f"\n"
         f'→ SE "campanha de exame de vista completo gratuito" NÃO aparece no histórico:\n'
         f"  Use dois [BREAK] separando três blocos:\n"
-        f"  {CAMPAIGN_MSG}[BREAK]"
+        f"  {campaign_msg}[BREAK]"
         f"Vou verificar a disponibilidade para hoje, só um momento.[BREAK]{SLOTS_TEMPLATE}\n"
         f"  (Se ainda não houve saudação, inclua-a antes do primeiro bloco.)\n"
         f"\n"
@@ -216,17 +222,17 @@ def _secao_cenarios(nav_hint: str) -> str:
         f"- Após enviar ou confirmar interesse: informe que um consultor irá atendê-lo em breve.\n"
         f"\n"
         f"Se o cliente perguntar sobre OFTALMOLOGISTA:\n"
-        f"- Responda com EXATAMENTE um [BREAK] separando dois blocos:\n"
-        f'  "Aqui no prédio temos oftalmologista e optometrista. O optometrista te atende primeiro e, '
+        f"- Responda com EXATAMENTE este texto (com o [BREAK] no meio):\n"
+        f"  Aqui no prédio temos oftalmologista e optometrista. O optometrista te atende primeiro e, "
         f"caso identifique alguma doença, já te encaminha para o oftalmologista.[BREAK]"
-        f"Mas se for só grau para óculos, ele já te prescreve a receita. Por acaso você já faz algum tratamento ou só "
-        f'precisa renovar os óculos mesmo?"\n'
+        f"Mas se for só grau para óculos, ele já te prescreve a receita. Por acaso você já faz algum tratamento ou só precisa renovar os óculos mesmo?\n"
         f"- Só óculos: retomar agendamento normalmente.\n"
-        f'- Tratamento ou prefere oftalmologista — responda com EXATAMENTE um [BREAK] separando dois blocos:\n'
-        f'  "Entendi, neste caso você pode passar direto com o oftalmologista.[BREAK]'
-        f"Por favor entre em contato com o Doutor Popular oficial no telefone: "
-        f"48 3375-2050, aqui do prédio, e você já pode agendar e ver os valores dos exames necessários "
-        f'direto com eles." → encerrar; NÃO agendar pelo bot.\n'
+        f"- Tratamento ou prefere oftalmologista — RESPOSTA OBRIGATÓRIA (reproduza palavra por palavra, incluindo o token [BREAK]):\n"
+        f"  Entendi, neste caso você pode passar direto com o oftalmologista.[BREAK]Por favor entre em contato com o Doutor Popular oficial no telefone: 48 3375-2050, aqui do prédio, e você já pode agendar e ver os valores dos exames necessários direto com eles.\n"
+        f"  REGRAS OBRIGATORIAS:\n"
+        f"  * O token [BREAK] DEVE aparecer literalmente no meio da resposta — separa duas mensagens distintas.\n"
+        f"  * NUNCA junte as duas frases em uma só mensagem. NUNCA omita o [BREAK].\n"
+        f"  * Após enviar, encerre. NÃO agendar, NÃO continuar.\n"
         f'- Se após redirecionamento perguntar se o exame seria gratuito: "O exame gratuito seria a '
         f"primeira triagem com o optometrista, onde ele vai te avaliar e já te informar os próximos "
         f"passos — te passar uma receita para óculos e, caso haja alguma patologia, te encaminhar "
@@ -254,7 +260,7 @@ def _secao_pos_agendamento() -> str:
     )
 
 
-def _secao_campanha() -> str:
+def _secao_campanha(campaign_msg: str) -> str:
     """Caminhos de resposta quando o cliente reage a uma campanha enviada pelo operador."""
     return (
         f"Se o cliente está respondendo a uma CAMPANHA enviada pelo operador:\n"
@@ -262,7 +268,7 @@ def _secao_campanha() -> str:
         f"\n"
         f"- Caminho A — Resposta POSITIVA (quer agendar): IGNORE completamente a regra de PRIMEIRA MENSAGEM. "
         f'NÃO use saudação (Bom dia/Boa tarde/Boa noite). NÃO se apresente pelo nome. '
-        f'Vá direto para o FORMATO OBRIGATÓRIO de agendamento, começando pela frase da campanha ("{CAMPAIGN_MSG}") '
+        f'Vá direto para o FORMATO OBRIGATÓRIO de agendamento, começando pela frase da campanha ("{campaign_msg}") '
         f"e siga o fluxo normalmente.\n"
         f"\n"
         f"- Caminho B — Resposta NEGATIVA SEM indicação de contato (não quer e não mencionou ninguém):\n"
@@ -328,11 +334,12 @@ def build_prompt(bot_config: dict, faq_items: list) -> str:
         String do prompt pronta para ser salva em rag_config.system_prompt
     """
     # ── Extrair e normalizar dados ────────────────────────────────────────────
-    bot_name      = (bot_config.get("bot_name")       or DEFAULT_BOT_NAME).strip()
-    store_name    = (bot_config.get("store_name")      or DEFAULT_STORE_NAME).strip()
-    store_address = (bot_config.get("store_address")   or DEFAULT_ADDRESS).strip()
-    store_notes   = (bot_config.get("store_notes")     or "").strip()
-    extra_raw     = (bot_config.get("bot_extra_rules") or "").strip()
+    bot_name      = (bot_config.get("bot_name")        or DEFAULT_BOT_NAME).strip()
+    store_name    = (bot_config.get("store_name")       or DEFAULT_STORE_NAME).strip()
+    store_address = (bot_config.get("store_address")    or DEFAULT_ADDRESS).strip()
+    store_notes   = (bot_config.get("store_notes")      or "").strip()
+    extra_raw     = (bot_config.get("bot_extra_rules")  or "").strip()
+    campaign_msg  = (bot_config.get("campaign_message") or CAMPAIGN_MSG).strip()
 
     # Regras extras opcionais (campo Identidade → Regras Extras no painel)
     extra_lines = [line.strip() for line in extra_raw.split("\n") if line.strip()]
@@ -351,11 +358,11 @@ def build_prompt(bot_config: dict, faq_items: list) -> str:
     secoes = [
         _secao_identidade(bot_name, store_name, store_address, extra_block),
         _secao_saudacao(bot_name, store_name),
-        _secao_convenio(),
-        _secao_agendamento(),
+        _secao_convenio(campaign_msg),
+        _secao_agendamento(campaign_msg),
         _secao_cenarios(nav_hint),
         _secao_pos_agendamento(),
-        _secao_campanha(),
+        _secao_campanha(campaign_msg),
         _secao_faq(faq_items),
     ]
 

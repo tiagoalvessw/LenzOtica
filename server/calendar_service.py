@@ -26,17 +26,29 @@ def _get_service():
     return build("calendar", "v3", credentials=creds)
 
 
+_DEFAULT_ADDRESS = "Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC"
+
+
 def create_event(name: str, date_str: str, time_str: str, phone: str = "") -> str:
     service = _get_service()
 
     start_dt = datetime.fromisoformat(f"{date_str}T{time_str}:00")
-    end_dt = start_dt + timedelta(minutes=30)
+    try:
+        import db as _db
+        row = _db.fetchone("SELECT slot_duration_minutes, store_address FROM bot_config LIMIT 1")
+        slot_minutes = int(row["slot_duration_minutes"]) if row and row["slot_duration_minutes"] else 30
+        address = (row["store_address"] or "").strip() if row else ""
+        address = address or _DEFAULT_ADDRESS
+    except Exception:
+        slot_minutes = 30
+        address = _DEFAULT_ADDRESS
+    end_dt = start_dt + timedelta(minutes=slot_minutes)
 
     phone_clean = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
 
     event = {
         "summary": f"Consulta — {name}",
-        "location": "Rua Vereador Arthur Manoel Mariano, 362, Forquilhinhas, São José - SC",
+        "location": address,
         "description": f"Agendado via WhatsApp\nTelefone: {phone_clean}" if phone_clean else "Agendado via WhatsApp",
         "start": {"dateTime": start_dt.isoformat(), "timeZone": "America/Sao_Paulo"},
         "end":   {"dateTime": end_dt.isoformat(),   "timeZone": "America/Sao_Paulo"},
