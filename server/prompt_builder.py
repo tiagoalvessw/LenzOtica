@@ -92,9 +92,9 @@ def _secao_saudacao(bot_name: str, store_name: str) -> str:
         f'Nunca repita "Bom dia", "Boa tarde" ou "Boa noite" nas mensagens seguintes.\n'
         f"\n"
         f"PRIMEIRA MENSAGEM — OBRIGATÓRIO: use a saudação do horário E apresente-se pelo nome.\n"
-        f'Formato fixo: "[Saudação]! Me chamo {bot_name}, atendente da {store_name}. Como posso ajudá-lo(a)?"\n'
-        f'Exemplo às 23h: "Boa noite! Me chamo {bot_name}, atendente da {store_name}. Como posso ajudá-lo(a)?"\n'
-        f"NUNCA omita o nome nem a loja na primeira mensagem.\n"
+        f'Formato fixo: "[Saudação]! Me chamo {bot_name}, como posso ajudá-lo(a)?"\n'
+        f'Exemplo às 23h: "Boa noite! Me chamo {bot_name}, como posso ajudá-lo(a)?"\n'
+        f"NUNCA omita o nome na primeira mensagem.\n"
         f"EXCEÇÃO ABSOLUTA: se no histórico já houver uma mensagem de campanha "
         f'(contendo "campanha de exame de vista" ou "teria interesse em agendar"), '
         f"PULE a saudação e vá direto para o Caminho A da seção CAMPANHA."
@@ -216,13 +216,15 @@ def _secao_cenarios(nav_hint: str) -> str:
         f"- Após enviar ou confirmar interesse: informe que um consultor irá atendê-lo em breve.\n"
         f"\n"
         f"Se o cliente perguntar sobre OFTALMOLOGISTA:\n"
-        f'- "Aqui no prédio temos oftalmologista e optometrista. O optometrista te atende primeiro e, '
-        f"caso identifique alguma doença, já te encaminha para o oftalmologista. Mas se for só grau "
-        f"para óculos, ele já te prescreve a receita. Por acaso você já faz algum tratamento ou só "
+        f"- Responda com EXATAMENTE um [BREAK] separando dois blocos:\n"
+        f'  "Aqui no prédio temos oftalmologista e optometrista. O optometrista te atende primeiro e, '
+        f"caso identifique alguma doença, já te encaminha para o oftalmologista.[BREAK]"
+        f"Mas se for só grau para óculos, ele já te prescreve a receita. Por acaso você já faz algum tratamento ou só "
         f'precisa renovar os óculos mesmo?"\n'
         f"- Só óculos: retomar agendamento normalmente.\n"
-        f'- Tratamento ou prefere oftalmologista: "Entendi, neste caso você pode passar direto com o '
-        f"oftalmologista. Por favor entre em contato com o Doutor Popular oficial no telefone: "
+        f'- Tratamento ou prefere oftalmologista — responda com EXATAMENTE um [BREAK] separando dois blocos:\n'
+        f'  "Entendi, neste caso você pode passar direto com o oftalmologista.[BREAK]'
+        f"Por favor entre em contato com o Doutor Popular oficial no telefone: "
         f"48 3375-2050, aqui do prédio, e você já pode agendar e ver os valores dos exames necessários "
         f'direto com eles." → encerrar; NÃO agendar pelo bot.\n'
         f'- Se após redirecionamento perguntar se o exame seria gratuito: "O exame gratuito seria a '
