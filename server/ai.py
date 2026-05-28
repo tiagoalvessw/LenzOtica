@@ -73,10 +73,13 @@ def get_response(sender: str, message: str) -> str:
         session.sessions[sender], system_tokens
     )
 
-    MODELS = ["llama-3.3-70b-versatile"]
+    MODELS = [
+        "llama-3.3-70b-versatile",
+    ]
 
     response = None
     last_error = None
+    used_model = None
     for model in MODELS:
         try:
             print(f"[AI] Tentando modelo: {model}")
@@ -85,14 +88,15 @@ def get_response(sender: str, message: str) -> str:
                 messages=[{"role": "system", "content": system_ctx}]
                 + session.sessions[sender],
                 temperature=0.3,
-                max_tokens=280,
+                max_tokens=320,
             )
+            used_model = model
             print(f"[AI] Sucesso com modelo: {model}")
             break
         except RateLimitError as e:
             print(f"[GROQ RATE LIMIT] {model}: {e}")
             last_error = e
-            continue
+            continue  # tenta próximo modelo
         except APIStatusError as e:
             print(f"[GROQ API ERROR] {model}: {e}")
             last_error = e
@@ -104,16 +108,47 @@ def get_response(sender: str, message: str) -> str:
 
     if response and response.usage:
         print(
-            f"[AI] Tokens reais — prompt: {response.usage.prompt_tokens} | "
+            f"[AI] Modelo={used_model} | Tokens — "
+            f"prompt: {response.usage.prompt_tokens} | "
             f"resposta: {response.usage.completion_tokens} | "
             f"total: {response.usage.total_tokens}"
         )
 
     if response is None:
-        error_info = f"{type(last_error).__name__}: {last_error}"
+        import re as _re
         session.pop_last(sender)
         session.save()
-        return f"Um momento, por favor.[PENDENTE:Todos os modelos falharam — {error_info}]"
+
+        # Rate limit: extrai o tempo de retry e dá mensagem útil ao cliente
+        if isinstance(last_error, RateLimitError):
+            err_str = str(last_error)
+            m = _re.search(r'try again in ([\d]+m[\d\.]+s|[\d\.]+s|[\d]+ hour[s]?)', err_str, _re.I)
+            raw_retry = m.group(1) if m else None
+            # Formata de forma legível: "11m34.656s" → "11 minutos"
+            if raw_retry:
+                mins_m = _re.match(r'(\d+)m', raw_retry)
+                hrs_m  = _re.match(r'(\d+)\s*hour', raw_retry)
+                if hrs_m:
+                    h = int(hrs_m.group(1))
+                    retry_txt = f"{h} hora{'s' if h > 1 else ''}"
+                elif mins_m:
+                    mins = int(mins_m.group(1))
+                    retry_txt = f"{mins + 1} minutos"  # arredonda pra cima
+                else:
+                    retry_txt = "1 minuto"
+            else:
+                retry_txt = "alguns minutos"
+            print(f"[RATE LIMIT] Todos modelos esgotados. Retry: {retry_txt}")
+            return (
+                f"Um momento, por favor."
+                f"[PENDENTE:Rate limit Groq — todos modelos atingiram o limite. "
+                f"Retry estimado: {retry_txt}. Verificar console.groq.com.]"
+            )
+
+        # Outro erro
+        error_info = f"{type(last_error).__name__}: {last_error}"
+        print(f"[AI FALHOU] {error_info}")
+        return f"Um momento, por favor.[PENDENTE:Erro no modelo de IA — {error_info}]"
 
     reply = response.choices[0].message.content
 
