@@ -45,8 +45,11 @@ from appointments import (
     archive_appointment,
 )
 from pending import add_pending, dismiss_pending, load as load_pending
+import clients as clients_mod
 
 load_dotenv()
+
+_SERVER_START = time.time()
 
 EVOLUTION_URL      = os.getenv("EVOLUTION_API_URL")
 EVOLUTION_KEY      = os.getenv("EVOLUTION_API_KEY")
@@ -76,7 +79,7 @@ def _is_duplicate(msg_id: str) -> bool:
     _processed_msgs[msg_id] = now
     return False
 
-MARKER         = re.compile(r'\[AGENDAR:([^|]+)\|(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})\]')
+MARKER         = re.compile(r'\[AGENDAR:([^|]*)\|(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})\]')
 PENDING_MARKER = re.compile(r'\[PENDENTE:([^\]]+)\]')
 DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
 
@@ -122,16 +125,58 @@ def _typing_delay(text: str) -> float:
     return min(1.5 + len(text) * 0.070, 5.0)
 
 
+_DEFAULT_NOTIF: dict[str, str] = {
+    "msg_lembrete_dia": (
+        "Olá, {nome}! Aqui é a Liza da LenzÓtica 👓\n\n"
+        "Passando para lembrar que *amanhã* você tem consulta marcada para as *{hora}h* ({data}).\n\n"
+        "Qualquer dúvida é só nos chamar. Te esperamos!"
+    ),
+    "msg_lembrete_hora": (
+        "Olá, {nome}! Aqui é a Liza da LenzÓtica 👓\n\n"
+        "Sua consulta está marcada para *{data}* às *{hora}h*.\n\n"
+        "Você confirma sua presença? Responda *SIM* para confirmar ou *NÃO* caso precise reagendar."
+    ),
+    "msg_cancelamento": (
+        "Olá, {nome}. Seu agendamento para *{data}* às *{hora}h* "
+        "foi cancelado pois não recebemos confirmação de presença.\n\n"
+        "Deseja reagendar? É só nos enviar uma mensagem 😊"
+    ),
+    "msg_retorno": (
+        "Olá, {nome}! Aqui é a Liza da LenzÓtica 👓\n\n"
+        "Passando para lembrar que está na hora do seu retorno na ótica! "
+        "Que tal agendarmos uma consulta? É só responder *SIM* que eu marco para você 😊"
+    ),
+}
+
+
+def _get_notif_template(key: str) -> str:
+    """Retorna o template customizado do DB ou o padrão se estiver vazio."""
+    try:
+        row = db.fetchone(f"SELECT {key} FROM bot_config LIMIT 1")
+        if row and row[key] and str(row[key]).strip():
+            return str(row[key])
+    except Exception:
+        pass
+    return _DEFAULT_NOTIF.get(key, "")
+
+
+def _render_notif(template: str, nome: str = "", data: str = "", hora: str = "") -> str:
+    """Substitui {nome}, {data} e {hora} no template."""
+    return (template
+            .replace("{nome}", nome)
+            .replace("{data}", data)
+            .replace("{hora}", hora))
+
+
 async def check_day_reminders():
     for apt in get_appointments_for_day_reminder():
         phone = apt["phone"]
         name = apt["name"]
         date_br = format_date_br(apt["date"])
 
-        text = (
-            f"Olá, {name}! Aqui é a Liza da LenzÓtica 👓\n\n"
-            f"Passando para lembrar que *amanhã* você tem consulta marcada para as *{apt['time']}h* ({date_br}).\n\n"
-            f"Qualquer dúvida é só nos chamar. Te esperamos!"
+        text = _render_notif(
+            _get_notif_template("msg_lembrete_dia"),
+            nome=name, data=date_br, hora=apt["time"],
         )
         send_message(phone, text)
         inject_assistant_message(phone, text)
@@ -145,10 +190,9 @@ async def check_reminders():
         name = apt["name"]
         date_br = format_date_br(apt["date"])
 
-        text = (
-            f"Olá, {name}! Aqui é a Liza da LenzÓtica 👓\n\n"
-            f"Sua consulta está marcada para *{date_br}* às *{apt['time']}h*.\n\n"
-            f"Você confirma sua presença? Responda *SIM* para confirmar ou *NÃO* caso precise reagendar."
+        text = _render_notif(
+            _get_notif_template("msg_lembrete_hora"),
+            nome=name, data=date_br, hora=apt["time"],
         )
         send_message(phone, text)
         inject_assistant_message(phone, text)
@@ -162,10 +206,9 @@ async def check_cancellations():
         name = apt["name"]
         date_br = format_date_br(apt["date"])
 
-        text = (
-            f"Olá, {name}. Seu agendamento para *{date_br}* às *{apt['time']}h* "
-            f"foi cancelado pois não recebemos confirmação de presença.\n\n"
-            f"Deseja reagendar? É só nos enviar uma mensagem 😊"
+        text = _render_notif(
+            _get_notif_template("msg_cancelamento"),
+            nome=name, data=date_br, hora=apt["time"],
         )
         send_message(phone, text)
         inject_assistant_message(phone, text)
@@ -211,6 +254,20 @@ async def scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Garante colunas de slot e templates de notificação
+    _migrations = [
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS slot_duration_minutes INT  NOT NULL DEFAULT 30",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS slot_interval_minutes  INT  NOT NULL DEFAULT 0",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_lembrete_dia       TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_lembrete_hora      TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_cancelamento       TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE bot_config ADD COLUMN IF NOT EXISTS msg_retorno            TEXT NOT NULL DEFAULT ''",
+    ]
+    for _sql in _migrations:
+        try:
+            db.execute(_sql)
+        except Exception as _e:
+            _log(f"[lifespan] migration: {_e}")
     task = asyncio.create_task(scheduler_loop())
     yield
     task.cancel()
@@ -253,7 +310,8 @@ async def painel():
         reverse=True,
     )
     pending_items = load_pending()
-    return render_panel(agendamentos, CALENDAR_EMBED_URL, ADMIN_TOKEN, pending_items)
+    clients_stats = clients_mod.get_return_stats()
+    return render_panel(agendamentos, CALENDAR_EMBED_URL, ADMIN_TOKEN, pending_items, clients_count=clients_stats.get("total", 0))
 
 
 @app.post("/admin/cancel", dependencies=[Depends(verify_token)])
@@ -279,10 +337,9 @@ async def admin_remind(request: Request):
         if apt["phone"] == phone and apt["date"] == date and apt["time"] == time:
             name    = apt["name"]
             date_br = format_date_br(date)
-            text = (
-                f"Olá, {name}! Aqui é a Liza da LenzÓtica 👓\n\n"
-                f"Sua consulta está marcada para *{date_br}* às *{time}h*.\n\n"
-                f"Você confirma sua presença? Responda *SIM* para confirmar ou *NÃO* caso precise reagendar."
+            text = _render_notif(
+                _get_notif_template("msg_lembrete_hora"),
+                nome=name, data=date_br, hora=time,
             )
             send_message(phone, text)
             inject_assistant_message(phone, text)
@@ -308,6 +365,7 @@ async def admin_new_appointment(request: Request):
         print(f"[CALENDAR ERROR] {e}")
         event_id = ""
     add_appointment(phone, name, date, time, event_id)
+    clients_mod.upsert_from_appointment(phone, name, date)
     return {"status": "ok"}
 
 
@@ -386,6 +444,11 @@ async def admin_completed(request: Request):
                 print(f"[CALENDAR ERROR] completed: {e}")
             break
     mark_completed(phone, date, time, body.get("notes", ""))
+    # Atualiza cadastro do cliente
+    for apt in load_appointments():
+        if apt["phone"] == phone and apt["date"] == date and apt["time"] == time:
+            clients_mod.upsert_from_appointment(phone, apt["name"], date)
+            break
     return {"status": "ok"}
 
 
@@ -407,6 +470,7 @@ async def admin_completed_by_phone(request: Request):
                 apt["notes"] = notes
                 save_appointments(data)
                 _log(f"[ADMIN] completed_by_phone: {phone}")
+                clients_mod.upsert_from_appointment(phone, apt["name"], apt["date"])
                 break
         return {"status": "ok"}
     except Exception as e:
@@ -689,13 +753,19 @@ async def save_bot_config(request: Request):
         "store_name", "store_address", "store_phone", "store_services",
         "store_notes", "bot_name", "bot_tone", "bot_personality",
         "bot_greeting", "bot_extra_rules",
+        "msg_lembrete_dia", "msg_lembrete_hora", "msg_cancelamento", "msg_retorno",
     ]
+    allowed_int = ["slot_duration_minutes", "slot_interval_minutes"]
     fields = []
     values = []
     for key in allowed:
         if key in body:
             fields.append(f"{key}=%s")
             values.append(str(body[key]))
+    for key in allowed_int:
+        if key in body:
+            fields.append(f"{key}=%s")
+            values.append(int(body[key]))
     if not fields:
         return {"status": "nothing_to_update"}
     fields.append("updated_at=now()")
@@ -762,10 +832,333 @@ async def delete_faq(faq_id: int):
     return {"status": "ok"}
 
 
+# ─── Clients ───────────────────────────────────────────────────────────────────
+
+@app.get("/admin/clients", dependencies=[Depends(verify_token)])
+async def list_clients():
+    return clients_mod.load()
+
+
+@app.post("/admin/clients", dependencies=[Depends(verify_token)])
+async def create_client(request: Request):
+    body = await request.json()
+    first_name = body.get("first_name", "").strip()
+    if not first_name:
+        raise HTTPException(status_code=400, detail="first_name é obrigatório")
+    client_id = clients_mod.add_client(
+        first_name=first_name,
+        last_name=body.get("last_name", "").strip(),
+        phone=body.get("phone", "").strip(),
+        last_appointment_date=body.get("last_appointment_date") or None,
+        notes=body.get("notes", "").strip(),
+        return_date=body.get("return_date") or None,
+        return_period_months=int(body["return_period_months"]) if body.get("return_period_months") else None,
+        birth_date=body.get("birth_date") or None,
+    )
+    return {"status": "ok", "id": client_id}
+
+
+@app.put("/admin/clients/{client_id}", dependencies=[Depends(verify_token)])
+async def update_client(client_id: int, request: Request):
+    body = await request.json()
+    first_name = body.get("first_name", "").strip()
+    if not first_name:
+        raise HTTPException(status_code=400, detail="first_name é obrigatório")
+    clients_mod.update_client(
+        client_id=client_id,
+        first_name=first_name,
+        last_name=body.get("last_name", "").strip(),
+        phone=body.get("phone", "").strip(),
+        last_appointment_date=body.get("last_appointment_date") or None,
+        notes=body.get("notes", "").strip(),
+        return_date=body.get("return_date") or None,
+        return_period_months=int(body["return_period_months"]) if body.get("return_period_months") else None,
+        birth_date=body.get("birth_date") or None,
+    )
+    return {"status": "ok"}
+
+
+@app.delete("/admin/clients/{client_id}", dependencies=[Depends(verify_token)])
+async def delete_client(client_id: int):
+    clients_mod.delete_client(client_id)
+    return {"status": "ok"}
+
+
+@app.post("/admin/clients/{client_id}/notify-return", dependencies=[Depends(verify_token)])
+async def notify_client_return(client_id: int, request: Request):
+    client = clients_mod.get_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado")
+    phone_raw = client.get("phone", "").strip()
+    if not phone_raw:
+        raise HTTPException(status_code=400, detail="Cliente sem telefone cadastrado")
+    # Garante formato WhatsApp
+    if not phone_raw.endswith("@s.whatsapp.net") and not phone_raw.endswith("@lid"):
+        phone = phone_raw.lstrip("+") + "@s.whatsapp.net"
+    else:
+        phone = phone_raw
+    name = client.get("first_name", "")
+    text = _render_notif(
+        _get_notif_template("msg_retorno"),
+        nome=name,
+    )
+    try:
+        send_message(phone, text)
+        inject_assistant_message(phone, text)
+    except Exception as e:
+        _log(f"[NOTIFY RETURN ERROR] {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao enviar mensagem: {e}")
+    return {"status": "ok"}
+
+
+@app.get("/admin/clients/stats", dependencies=[Depends(verify_token)])
+async def clients_stats():
+    return clients_mod.get_return_stats()
+
+
 @app.post("/admin/build-prompt", dependencies=[Depends(verify_token)])
 async def build_prompt_endpoint():
     prompt = pb.build_and_save_prompt()
     return {"status": "ok", "length": len(prompt)}
+
+
+# ─── Chat Cliente ───────────────────────────────────────────────────────────────
+
+def _is_ia_enabled(phone: str) -> bool:
+    """Retorna True se a IA está habilitada para este número (padrão True)."""
+    try:
+        row = db.fetchone("SELECT ia_enabled FROM chat_ia_mode WHERE phone = %s", (phone,))
+        return row["ia_enabled"] if row else True
+    except Exception:
+        return True
+
+
+@app.get("/admin/chat/contacts", dependencies=[Depends(verify_token)])
+async def chat_contacts():
+    """Lista contatos com última mensagem, contagem não lida e modo IA."""
+    rows = db.fetchall("""
+        SELECT DISTINCT ON (phone) phone, role, content, created_at, sent_by_operator
+        FROM conversation_history
+        ORDER BY phone, created_at DESC
+    """)
+    read_rows = db.fetchall("SELECT phone, last_read_at FROM chat_read_status")
+    read_map = {r["phone"]: r["last_read_at"] for r in read_rows}
+    ia_rows = db.fetchall("SELECT phone, ia_enabled FROM chat_ia_mode")
+    ia_map = {r["phone"]: r["ia_enabled"] for r in ia_rows}
+
+    contacts = []
+    for row in rows:
+        phone = row["phone"]
+        last_read = read_map.get(phone)
+        if last_read:
+            unread_row = db.fetchone(
+                "SELECT COUNT(*) AS cnt FROM conversation_history"
+                " WHERE phone = %s AND role = 'user' AND created_at > %s",
+                (phone, last_read),
+            )
+        else:
+            unread_row = db.fetchone(
+                "SELECT COUNT(*) AS cnt FROM conversation_history WHERE phone = %s AND role = 'user'",
+                (phone,),
+            )
+        unread = int(unread_row["cnt"]) if unread_row else 0
+
+        # Tenta obter nome via agendamentos
+        name_row = db.fetchone(
+            "SELECT name FROM appointments WHERE phone = %s ORDER BY created_at DESC LIMIT 1",
+            (phone,),
+        )
+        name = name_row["name"] if name_row else None
+        if not name:
+            phone_raw = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
+            client_row = db.fetchone(
+                "SELECT TRIM(first_name || ' ' || COALESCE(last_name,'')) AS name"
+                " FROM clients WHERE REPLACE(REPLACE(phone,'@s.whatsapp.net',''),'@lid','') = %s LIMIT 1",
+                (phone_raw,),
+            )
+            name = (client_row["name"] or "").strip() if client_row else None
+
+        display_phone = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
+        contacts.append({
+            "phone": phone,
+            "display_phone": display_phone,
+            "name": name or display_phone,
+            "last_message": (row["content"] or "")[:80],
+            "last_message_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "last_message_role": row["role"],
+            "unread_count": unread,
+            "ia_enabled": ia_map.get(phone, True),
+        })
+
+    contacts.sort(key=lambda c: c["last_message_at"] or "", reverse=True)
+    return contacts
+
+
+@app.get("/admin/chat/messages/{phone:path}", dependencies=[Depends(verify_token)])
+async def chat_messages(phone: str):
+    """Retorna histórico completo de mensagens de um contato."""
+    rows = db.fetchall(
+        "SELECT id, role, content, COALESCE(sent_by_operator, FALSE) AS sent_by_operator, created_at"
+        " FROM conversation_history WHERE phone = %s ORDER BY created_at ASC",
+        (phone,),
+    )
+    return [
+        {
+            "id": r["id"],
+            "role": r["role"],
+            "content": r["content"],
+            "sent_by_operator": bool(r.get("sent_by_operator", False)),
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@app.post("/admin/chat/send", dependencies=[Depends(verify_token)])
+async def chat_send(request: Request):
+    """Envia mensagem do operador para um contato via WhatsApp."""
+    body = await request.json()
+    phone = body.get("phone", "").strip()
+    text = body.get("text", "").strip()
+    if not phone or not text:
+        raise HTTPException(status_code=400, detail="phone e text são obrigatórios")
+    try:
+        send_message(phone, text)
+    except Exception as e:
+        _log(f"[CHAT SEND ERROR] {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao enviar: {e}")
+    import session as _sess
+    _sess.push(phone, "assistant", text, sent_by_operator=True)
+    _sess.save()
+    return {"status": "ok"}
+
+
+@app.post("/admin/chat/read/{phone:path}", dependencies=[Depends(verify_token)])
+async def chat_mark_read(phone: str):
+    """Marca conversa de um contato como lida."""
+    db.execute(
+        "INSERT INTO chat_read_status (phone, last_read_at) VALUES (%s, NOW())"
+        " ON CONFLICT (phone) DO UPDATE SET last_read_at = NOW()",
+        (phone,),
+    )
+    return {"status": "ok"}
+
+
+@app.get("/admin/chat/ia-mode/{phone:path}", dependencies=[Depends(verify_token)])
+async def get_ia_mode(phone: str):
+    row = db.fetchone("SELECT ia_enabled FROM chat_ia_mode WHERE phone = %s", (phone,))
+    return {"ia_enabled": row["ia_enabled"] if row else True}
+
+
+@app.post("/admin/chat/ia-mode/{phone:path}", dependencies=[Depends(verify_token)])
+async def set_ia_mode(phone: str, request: Request):
+    body = await request.json()
+    enabled = bool(body.get("ia_enabled", True))
+    db.execute(
+        "INSERT INTO chat_ia_mode (phone, ia_enabled, updated_at) VALUES (%s, %s, NOW())"
+        " ON CONFLICT (phone) DO UPDATE SET ia_enabled = %s, updated_at = NOW()",
+        (phone, enabled, enabled),
+    )
+    return {"status": "ok", "ia_enabled": enabled}
+
+
+# ─── System Status ─────────────────────────────────────────────────────────────
+
+@app.get("/admin/system-status", dependencies=[Depends(verify_token)])
+async def system_status():
+    checks = []
+
+    # 1 · Servidor / uptime
+    uptime_secs = int(time.time() - _SERVER_START)
+    h, rem  = divmod(uptime_secs, 3600)
+    m, s    = divmod(rem, 60)
+    uptime_str = (f"{h}h {m:02d}min" if h else f"{m}min {s:02d}s" if m else f"{s}s")
+    checks.append({"key": "server", "label": "Servidor",
+                   "status": "ok", "detail": f"Uptime: {uptime_str}", "latency_ms": None})
+
+    # 2 · PostgreSQL
+    t0 = time.time()
+    try:
+        db.fetchval("SELECT 1")
+        lat = int((time.time() - t0) * 1000)
+        checks.append({"key": "postgres", "label": "PostgreSQL",
+                        "status": "ok", "detail": f"OK — {lat} ms", "latency_ms": lat})
+    except Exception as exc:
+        checks.append({"key": "postgres", "label": "PostgreSQL",
+                        "status": "error", "detail": str(exc)[:80], "latency_ms": None})
+
+    # 3 · pgvector / RAG
+    try:
+        t0 = time.time()
+        has_pgv  = db.fetchval("SELECT COUNT(*) FROM pg_extension WHERE extname='vector'")
+        n_docs   = db.fetchval("SELECT COUNT(*) FROM rag_documents WHERE is_active = true") or 0
+        n_chunks = db.fetchval("SELECT COUNT(*) FROM rag_chunks") or 0
+        lat = int((time.time() - t0) * 1000)
+        if not has_pgv:
+            checks.append({"key": "pgvector", "label": "pgvector (RAG)",
+                            "status": "warn", "detail": "Extensão não instalada no Postgres", "latency_ms": lat})
+        else:
+            d_lbl = f"{n_docs} doc{'s' if n_docs != 1 else ''} ativo{'s' if n_docs != 1 else ''}"
+            c_lbl = f"{n_chunks} chunk{'s' if n_chunks != 1 else ''}"
+            checks.append({"key": "pgvector", "label": "pgvector (RAG)",
+                            "status": "ok", "detail": f"{d_lbl} · {c_lbl}", "latency_ms": lat})
+    except Exception as exc:
+        checks.append({"key": "pgvector", "label": "pgvector (RAG)",
+                        "status": "error", "detail": str(exc)[:80], "latency_ms": None})
+
+    # 4 · Google Calendar
+    if CALENDAR_EMBED_URL:
+        checks.append({"key": "calendar", "label": "Google Calendar",
+                        "status": "ok", "detail": "Configurado", "latency_ms": None})
+    else:
+        checks.append({"key": "calendar", "label": "Google Calendar",
+                        "status": "warn", "detail": "Não configurado — defina CALENDAR_EMBED_URL no .env",
+                        "latency_ms": None})
+
+    # 5 · WhatsApp (Evolution API)
+    if not EVOLUTION_URL or not EVOLUTION_KEY or not EVOLUTION_INSTANCE:
+        checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                        "status": "warn", "detail": "Variáveis EVOLUTION_URL / EVOLUTION_KEY / EVOLUTION_INSTANCE não definidas",
+                        "latency_ms": None})
+    else:
+        try:
+            t0 = time.time()
+            resp = requests.get(
+                f"{EVOLUTION_URL}/instance/connectionState/{EVOLUTION_INSTANCE}",
+                headers={"apikey": EVOLUTION_KEY},
+                timeout=4,
+            )
+            lat = int((time.time() - t0) * 1000)
+            if resp.status_code == 200:
+                payload = resp.json()
+                state = (payload.get("instance", {}).get("state")
+                         or payload.get("state")
+                         or "unknown")
+                if state == "open":
+                    checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                                    "status": "ok", "detail": f"Conectado — {lat} ms", "latency_ms": lat})
+                elif state in ("connecting", "connecting..."):
+                    checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                                    "status": "warn", "detail": f"Conectando... ({lat} ms)", "latency_ms": lat})
+                else:
+                    checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                                    "status": "error", "detail": f"Desconectado — state: {state}", "latency_ms": lat})
+            else:
+                checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                                "status": "error", "detail": f"Evolution API retornou HTTP {resp.status_code}",
+                                "latency_ms": None})
+        except requests.exceptions.Timeout:
+            checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                            "status": "error", "detail": "Timeout ao conectar à Evolution API (>4 s)", "latency_ms": None})
+        except Exception as exc:
+            checks.append({"key": "whatsapp", "label": "WhatsApp (Evolution)",
+                            "status": "error", "detail": str(exc)[:80], "latency_ms": None})
+
+    return {
+        "uptime_seconds": uptime_secs,
+        "checks": checks,
+        "checked_at": datetime.now().isoformat(),
+    }
 
 
 # ─── Webhook ───────────────────────────────────────────────────────────────────
@@ -833,6 +1226,14 @@ async def webhook(request: Request, event_path: str = ""):
             msg = "✅ Conversa reiniciada. Como posso ajudar?"
             send_message(sender, msg)
             inject_assistant_message(sender, msg)
+            return {"status": "ok"}
+
+        # Verifica se a IA está pausada para este contato (modo manual do operador)
+        if not _is_ia_enabled(sender):
+            import session as _sess_wh
+            _sess_wh.push(sender, "user", text)
+            _sess_wh.save()
+            _log(f"[IA PAUSADA] Mensagem de {sender} salva sem resposta automática")
             return {"status": "ok"}
 
         if has_pending_reminder(sender):
@@ -913,6 +1314,23 @@ async def webhook(request: Request, event_path: str = ""):
                     date_str = match.group(2)
                     time_str = match.group(3)
 
+                    # ── Marcador sem nome: pedir o nome ao cliente ────────────
+                    if not name:
+                        _log(f"[AGENDAR SEM NOME] {sender} escolheu {date_str} {time_str} mas nome vazio")
+                        pre_text = MARKER.sub("", part).strip()
+                        if pre_text:
+                            await asyncio.to_thread(send_message, sender, pre_text)
+                        ask_msg = "Para finalizar o agendamento, preciso do seu nome completo. Como devo registrar?"
+                        await asyncio.to_thread(send_message, sender, ask_msg)
+                        inject_assistant_message(sender, ask_msg)
+                        inject_assistant_message(
+                            sender,
+                            f"[Sistema: nome ainda não informado. "
+                            f"Quando o cliente fornecer o nome, confirme os dados e gere "
+                            f"[AGENDAR:NOME|{date_str}|{time_str}].]"
+                        )
+                        continue
+
                     try:
                         hour, minute = map(int, time_str.split(":"))
                         dt = datetime.fromisoformat(date_str).replace(hour=hour, minute=minute)
@@ -936,6 +1354,7 @@ async def webhook(request: Request, event_path: str = ""):
                         print(f"[CALENDAR ERROR] {e}")
                         event_id = ""
                     add_appointment(sender, name, date_str, time_str, event_id)
+                    clients_mod.upsert_from_appointment(sender, name, date_str)
                     date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
                     time_display = time_str.replace(":", "h")
 
@@ -963,7 +1382,7 @@ async def webhook(request: Request, event_path: str = ""):
 
         except Exception as e:
             error_info = f"{type(e).__name__}: {e}"
-            print(f"[WEBHOOK ERROR] {error_info}")
+            _log(f"[WEBHOOK ERROR] {sender} — {error_info}")
             send_message(sender, "Um momento, por favor.")
             add_pending(sender, f"Erro no processamento da mensagem — {error_info}")
 

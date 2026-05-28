@@ -10,12 +10,14 @@ _dirty: set = set()
 def load() -> None:
     global sessions
     rows = db.fetchall(
-        "SELECT phone, role, content FROM conversation_history ORDER BY phone, created_at ASC"
+        "SELECT phone, role, content, COALESCE(sent_by_operator, FALSE) as sent_by_operator"
+        " FROM conversation_history ORDER BY phone, created_at ASC"
     )
     sessions = {}
     for row in rows:
         sessions.setdefault(row["phone"], []).append(
-            {"role": row["role"], "content": row["content"]}
+            {"role": row["role"], "content": row["content"],
+             "sent_by_operator": bool(row.get("sent_by_operator", False))}
         )
 
 
@@ -25,8 +27,11 @@ def save() -> None:
         db.execute("DELETE FROM conversation_history WHERE phone = %s", (phone,))
         for msg in messages:
             db.execute(
-                "INSERT INTO conversation_history (phone, role, content, token_count) VALUES (%s,%s,%s,%s)",
-                (phone, msg["role"], msg["content"], max(1, len(msg["content"]) // 4)),
+                "INSERT INTO conversation_history (phone, role, content, token_count, sent_by_operator)"
+                " VALUES (%s,%s,%s,%s,%s)",
+                (phone, msg["role"], msg["content"],
+                 max(1, len(msg["content"]) // 4),
+                 bool(msg.get("sent_by_operator", False))),
             )
     _dirty.clear()
 
@@ -43,9 +48,9 @@ def get_history(phone: str) -> list:
     return sessions.get(phone, [])
 
 
-def push(phone: str, role: str, content: str) -> None:
+def push(phone: str, role: str, content: str, sent_by_operator: bool = False) -> None:
     sessions.setdefault(phone, [])
-    sessions[phone].append({"role": role, "content": content})
+    sessions[phone].append({"role": role, "content": content, "sent_by_operator": sent_by_operator})
     _dirty.add(phone)
 
 
