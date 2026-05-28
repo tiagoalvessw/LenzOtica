@@ -53,6 +53,7 @@ import json
 from typing import AsyncGenerator
 from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import APIKeyHeader
 from dotenv import load_dotenv
 import requests
@@ -305,48 +306,49 @@ def _render_notif(template: str, nome: str = "", data: str = "", hora: str = "")
             .replace("{hora}", hora))
 
 
-async def check_day_reminders():
+def _load_notif_templates() -> dict:
+    """Carrega todos os templates de notificação em uma única query."""
+    keys = ["msg_lembrete_dia", "msg_lembrete_hora", "msg_cancelamento", "msg_retorno"]
+    try:
+        cols = ", ".join(keys)
+        row = db.fetchone(f"SELECT {cols} FROM bot_config LIMIT 1")
+        if row:
+            return {k: str(row[k]).strip() if row[k] and str(row[k]).strip() else _DEFAULT_NOTIF.get(k, "") for k in keys}
+    except Exception:
+        pass
+    return {k: _DEFAULT_NOTIF.get(k, "") for k in keys}
+
+
+async def check_day_reminders(templates: dict):
     for apt in get_appointments_for_day_reminder():
         phone = apt["phone"]
         name = apt["name"]
         date_br = format_date_br(apt["date"])
-
-        text = _render_notif(
-            _get_notif_template("msg_lembrete_dia"),
-            nome=name, data=date_br, hora=apt["time"],
-        )
+        text = _render_notif(templates["msg_lembrete_dia"], nome=name, data=date_br, hora=apt["time"])
         send_message(phone, text)
         inject_assistant_message(phone, text)
         mark_day_reminder_sent(phone, apt["date"], apt["time"])
         print(f"[LEMBRETE 1 DIA] Enviado para {phone}")
 
 
-async def check_reminders():
+async def check_reminders(templates: dict):
     for apt in get_appointments_for_reminder():
         phone = apt["phone"]
         name = apt["name"]
         date_br = format_date_br(apt["date"])
-
-        text = _render_notif(
-            _get_notif_template("msg_lembrete_hora"),
-            nome=name, data=date_br, hora=apt["time"],
-        )
+        text = _render_notif(templates["msg_lembrete_hora"], nome=name, data=date_br, hora=apt["time"])
         send_message(phone, text)
         inject_assistant_message(phone, text)
         mark_reminder_sent(phone, apt["date"], apt["time"])
         print(f"[LEMBRETE] Enviado para {phone}")
 
 
-async def check_cancellations():
+async def check_cancellations(templates: dict):
     for apt in get_appointments_to_cancel():
         phone = apt["phone"]
         name = apt["name"]
         date_br = format_date_br(apt["date"])
-
-        text = _render_notif(
-            _get_notif_template("msg_cancelamento"),
-            nome=name, data=date_br, hora=apt["time"],
-        )
+        text = _render_notif(templates["msg_cancelamento"], nome=name, data=date_br, hora=apt["time"])
         send_message(phone, text)
         inject_assistant_message(phone, text)
         cancel_appointment(phone, apt["date"], apt["time"])
@@ -370,9 +372,10 @@ async def scheduler_loop():
     global _sync_counter
     while True:
         try:
-            await check_day_reminders()
-            await check_reminders()
-            await check_cancellations()
+            templates = _load_notif_templates()
+            await check_day_reminders(templates)
+            await check_reminders(templates)
+            await check_cancellations(templates)
             await check_no_shows()
 
             # Sync do Google Calendar a cada 30 ciclos (~30 min)
@@ -439,6 +442,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 _LOGO_PATH = os.path.join(os.path.dirname(__file__), "..", "imagens", "logo lenzótica.PNG")
 
