@@ -86,7 +86,7 @@ def get_response(sender: str, message: str) -> str:
             response = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "system", "content": system_ctx}]
-                + session.sessions[sender],
+                + [{"role": m["role"], "content": m["content"]} for m in session.sessions[sender]],
                 temperature=0.3,
                 max_tokens=320,
             )
