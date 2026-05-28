@@ -939,6 +939,55 @@ USE_LOCAL_LLM=true
 
 ---
 
+### Melhoria — Refatoracao do `prompt_builder.py`
+
+**Problema anterior:** toda a logica de montagem do system prompt estava concentrada em uma unica funcao `build_prompt()` com uma f-string de 115 linhas. Qualquer alteracao no prompt exigia navegar por um bloco monolitico, e a frase da campanha estava repetida 4 vezes — uma mudanca de texto exigia 4 edicoes.
+
+**Solucao:** o modulo foi refatorado em 8 funcoes privadas, uma por bloco tematico:
+
+| Funcao | Responsabilidade |
+|---|---|
+| `_secao_identidade` | Identidade do agente, loja e regras gerais |
+| `_secao_saudacao` | Saudacao por horario e primeira mensagem |
+| `_secao_convenio` | Resposta ao cliente que pergunta sobre convenio |
+| `_secao_agendamento` | Formato `[BREAK]`, horarios e coleta de dados |
+| `_secao_cenarios` | Endereco, precos, orcamento, oftalmologista, produtos |
+| `_secao_pos_agendamento` | Regras apos `[AGENDAR:...]` gerado |
+| `_secao_campanha` | Caminhos A/B/C para respostas de campanha |
+| `_secao_faq` | Bloco de FAQ configurado pelo operador |
+
+**Constantes extraidas no topo do arquivo:**
+- `CAMPAIGN_MSG` — frase da campanha (antes repetida 4 vezes; agora em um unico lugar)
+- `SLOTS_TEMPLATE` — template de apresentacao de horarios
+- `DEFAULT_BOT_NAME`, `DEFAULT_STORE_NAME`, `DEFAULT_ADDRESS`, `DEFAULT_NAV_HINT`
+
+**Outras melhorias aplicadas:**
+- Docstrings adicionadas em todas as funcoes publicas e privadas
+- Import limpo: `try: from . import db / except: import db` em vez de `sys.path.insert` hack
+- Linhas de 200+ caracteres quebradas em concatenacao implicita de strings
+
+---
+
+### Melhoria — Fluxo de convenio com confirmacao antes dos horarios
+
+**Problema anterior:** quando o cliente perguntava sobre convenio, a Liza respondia sobre a campanha e em seguida listava os horarios disponiveis sem perguntar se o cliente queria agendar.
+
+**Solucao:** adicionada a secao `_secao_convenio()` no prompt com um fluxo em duas etapas:
+
+1. A Liza responde usando `[BREAK]` para separar em duas mensagens:
+   - Mensagem 1: `"Nao, mas essa semana estamos com uma campanha de exame de vista completo gratuito para nossos clientes."`
+   - Mensagem 2: `"Voce gostaria de agendar sua consulta?"`
+2. Aguarda confirmacao do cliente. So apos "Sim" (ou equivalente) apresenta os horarios.
+
+**Problema adicional — campanha repetida:** ao receber "Sim", o LLM disparava o `FORMATO OBRIGATORIO` completo (3 blocos) repetindo a mensagem da campanha. Varias abordagens foram testadas:
+- `ATENCAO:` condicional → ignorada pelo LLM
+- Verificacao de substring exata → nao batia porque o texto tinha prefixo "Nao, mas..."
+- **Solucao definitiva:** estrutura `→ SE / → SE JA` explicita que forca o LLM a verificar o historico *antes* de escolher o formato, em vez de descrever o formato padrao e tentar corrigi-lo depois com excecoes.
+
+**FAQ de convenio removido:** a entrada do FAQ que respondia sobre convenio foi deletada pois conflitava com a nova logica da secao dedicada — o LLM mesclava os dois textos e gerava respostas incorretas.
+
+---
+
 ### Melhoria — Aba Pendente: botao Concluir simplificado
 
 **Problema anterior:** a aba Pendente tinha dois botoes por item — **Finalizar** (arquivava o agendamento associado via `close_by_phone` + descartava a notificacao) e **Descartar** (abria modal de confirmacao e so removia a notificacao). O fluxo era confuso e o operador precisava de dois passos para uma acao simples.
@@ -953,6 +1002,85 @@ USE_LOCAL_LLM=true
 **Detalhe tecnico:** o botao passa apenas `this` no `onclick` (sem argumentos de string), e a funcao JS `concludePending(btn)` localiza o item pelo indice da linha no DOM — evitando o bug classico de aspas duplas dentro de atributos HTML onclick ao usar `JSON.stringify`.
 
 Tambem foi adicionado o endpoint `POST /admin/completed_by_phone` ao `main.py` (marca o agendamento ativo de um telefone como `completed` sem exigir status `attended`). Nao e usado pelo painel atualmente, mas esta disponivel para uso futuro.
+
+---
+
+### Bug corrigido — Clientes nao eram cadastrados ao agendar
+
+**Problema:** ao confirmar um agendamento (via WhatsApp ou pelo painel), o registro era salvo na tabela `appointments`, mas a tabela `clients` nunca era populada automaticamente. O modulo de clientes so aceitava cadastros manuais pelo painel.
+
+**Causa:** os dois pontos de criacao de agendamento (`webhook` e `/admin/appointments`) chamavam apenas `add_appointment()`, sem nenhuma chamada a `clients_mod`.
+
+**Solucao:** criada a funcao `upsert_from_appointment(phone, name, date)` em `clients.py`:
+- Se o `phone` ja existe em `clients` → atualiza `last_appointment_date`
+- Se nao existe → cria novo registro com `first_name`, `last_name` e `last_appointment_date`
+- Se `phone` estiver vazio → ignora silenciosamente
+
+Chamada adicionada em dois pontos do `main.py`:
+- Webhook, apos deteccao do marcador `[AGENDAR:]` (linha ~1042)
+- Endpoint `/admin/appointments`, apos `add_appointment()` (linha ~313)
+
+**Script de retroimportacao:** `server/backfill_clients.py` — importa todos os clientes existentes na tabela `appointments` para `clients`, usando o agendamento mais recente por telefone como `last_appointment_date`. Execute uma unica vez:
+```bash
+python backfill_clients.py
+```
+
+---
+
+### Bug corrigido — Botao Excluir da aba Clientes nao funcionava
+
+**Problema:** o botao **Excluir** na tabela de clientes nao abria o popup de confirmacao — clicando nele nada acontecia.
+
+**Causa:** o atributo `onclick` do botao era gerado com `JSON.stringify(nome)`, que produz `"Carolina Neves"` (com aspas duplas). Essas aspas terminavam prematuramente o atributo HTML `onclick="..."`, truncando o handler para `openClientDelModal(1,` — JavaScript invalido que o browser descartava silenciosamente.
+
+**Exemplo do HTML quebrado:**
+```html
+onclick="openClientDelModal(1,"Carolina Neves")"
+```
+O atributo era lido como `openClientDelModal(1,` (cortado na segunda `"`).
+
+**Correcao:** substituir `JSON.stringify(nome)` por `JSON.stringify(nome).replace(/"/g,"&quot;")`. O browser HTML-decodifica `&quot;` para `"` antes de executar o JavaScript — o evento chega correto ao handler.
+
+**HTML corrigido:**
+```html
+onclick="openClientDelModal(1,&quot;Carolina Neves&quot;)"
+```
+
+---
+
+### Melhoria — Aba Clientes: 7 melhorias implementadas
+
+Implementadas todas as melhorias de esforco baixo da aba Clientes:
+
+**1. Atualizacao automatica ao concluir**
+Quando o admin marca uma consulta como **Concluido** (endpoints `/admin/completed` e `/admin/completed_by_phone`), o `last_appointment_date` do cliente e atualizado automaticamente na tabela `clients` via `upsert_from_appointment`.
+
+**2. Contador de visitas**
+A query de `clients.load()` agora faz LEFT JOIN com `appointments` e conta quantas vezes o cliente compareceu (`status IN ('attended','completed')`). Exibido como badge azul na coluna **Visitas** da tabela.
+
+**3. Ordenacao por colunas**
+Cabeçalhos **Nome, Sobrenome, Visitas, Ultima Consulta, Data Retorno e Status** sao clicaveis. Primeiro clique ordena crescente, segundo inverte. Icone ⇅ indica coluna ordenavel; ficam coloridos ao ativar.
+
+**4. Ordenacao padrao inteligente**
+Sem coluna selecionada, a lista e ordenada automaticamente: 🔴 Atrasados → 🟡 Proximos (30 dias) → 🟢 OK → ⚪ Sem retorno.
+
+**5. Modal estilizado no Notificar**
+O `confirm()` nativo do browser foi substituido por um modal verde estilizado (igual ao de exclusao), com botoes **Cancelar** e **Sim, enviar**.
+
+**6. Exportar CSV**
+Botao **Exportar CSV** na toolbar gera arquivo com: ID, Nome, Sobrenome, Telefone, Visitas, Ultima Consulta, Data Nascimento, Data Retorno, Status Retorno e Observacoes. Inclui BOM UTF-8 para compatibilidade com Excel.
+
+**7. Data de nascimento**
+Nova coluna `birth_date DATE` na tabela `clients` (migration: `migrate_clients_v2.py`). Campo **Data de Nascimento** adicionado ao formulario de cadastro/edicao e coluna **Nasc.** exibida na tabela.
+
+**Arquivos modificados:**
+| Arquivo | Mudancas |
+|---|---|
+| `migrate_clients_v2.py` | Criado — adiciona coluna `birth_date` |
+| `backfill_clients.py` | Criado — retroimporta clientes de appointments |
+| `clients.py` | `load()` com visit_count, `add/update_client` com birth_date, `_row()` atualizado |
+| `main.py` | `/completed` e `/completed_by_phone` atualizam cliente; POST/PUT com birth_date |
+| `panel.py` | CSS, HTML (thead, modal, toolbar) e JS (sort, CSV, modal notificar) |
 
 ---
 

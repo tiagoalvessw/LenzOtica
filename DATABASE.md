@@ -326,7 +326,67 @@ VALUES ('default', true, 'Configuração padrão de produção');
 
 ---
 
-### 2.7 Tabela `rag_query_log`
+### 2.7 Tabela `clients`
+
+Cadastro de clientes com historico de consultas e controle de retorno. Populada automaticamente a cada agendamento (via WhatsApp ou painel) e atualizada ao marcar consulta como concluida.
+
+```sql
+CREATE TABLE IF NOT EXISTS clients (
+    id                    SERIAL       PRIMARY KEY,
+    first_name            VARCHAR(100) NOT NULL,
+    last_name             VARCHAR(100) NOT NULL DEFAULT '',
+    phone                 VARCHAR(50)  NOT NULL DEFAULT '',  -- ex: 5548999990000@s.whatsapp.net
+    last_appointment_date DATE,          -- atualizado automaticamente ao agendar/concluir
+    birth_date            DATE,          -- data de nascimento (opcional)
+    notes                 TEXT         NOT NULL DEFAULT '',
+    return_date           DATE,          -- data prevista de retorno
+    return_period_months  INT,           -- periodo de retorno em meses (calcula return_date)
+    created_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_clients_phone       ON clients(phone);
+CREATE INDEX IF NOT EXISTS idx_clients_return_date ON clients(return_date);
+CREATE INDEX IF NOT EXISTS idx_clients_created_at  ON clients(created_at);
+```
+
+**Status de retorno (calculado em JS no painel):**
+
+| Classe CSS | Condicao | Significado |
+|---|---|---|
+| `return-overdue` | `return_date < hoje` | Retorno atrasado (badge vermelho pulsante) |
+| `return-upcoming` | `return_date` entre hoje e +30 dias | Retorno proximo (badge amarelo) |
+| `return-ok` | `return_date > hoje + 30 dias` | Retorno em dia (badge verde) |
+| `return-none` | `return_date IS NULL` | Sem data de retorno (badge cinza) |
+
+**Query de carregamento com visit_count:**
+```sql
+SELECT c.*,
+       COUNT(a.id) FILTER (WHERE a.status IN ('attended','completed')) AS visit_count
+FROM clients c
+LEFT JOIN appointments a ON a.phone = c.phone
+GROUP BY c.id
+ORDER BY c.created_at DESC;
+```
+
+**Metrica de retorno (endpoint `/admin/clients/stats`):**
+```sql
+SELECT
+    COUNT(*)                                                                  AS total,
+    COUNT(*) FILTER (WHERE created_at >= date_trunc('month', CURRENT_DATE))  AS new_this_month,
+    COUNT(*) FILTER (WHERE return_date IS NOT NULL AND return_date < CURRENT_DATE) AS overdue,
+    COUNT(*) FILTER (WHERE return_date >= CURRENT_DATE
+                       AND return_date <= CURRENT_DATE + INTERVAL '30 days') AS upcoming
+FROM clients;
+```
+
+**Migracao inicial:** `server/migrate_clients.py`
+**Migracao v2 (birth_date):** `server/migrate_clients_v2.py`
+**Retroimportacao:** `server/backfill_clients.py` — popula `clients` a partir de `appointments` existentes
+
+---
+
+### 2.8 Tabela `rag_query_log`
 
 Log de buscas RAG para diagnóstico e melhoria contínua.
 
