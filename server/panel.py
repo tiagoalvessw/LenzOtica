@@ -1543,6 +1543,17 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   }};
 </script>
 <script src="/static/panel.js"></script>
+<script>
+  if (typeof navTo !== "function") {{
+    document.body.innerHTML = '<div style="font-family:sans-serif;padding:3rem;text-align:center;color:#c00">'
+      + '<h2>Erro ao carregar o painel</h2>'
+      + '<p>Os arquivos estáticos não foram encontrados (<code>/static/panel.js</code> retornou 404).</p>'
+      + '<p>Reinicie o servidor e limpe o cache do navegador (Ctrl+Shift+R).</p>'
+      + '<pre style="text-align:left;background:#f5f5f5;padding:1rem;display:inline-block">'
+      + 'cd server\\npython -m uvicorn main:app --reload --host 0.0.0.0</pre>'
+      + '</div>';
+  }}
+</script>
 
 </body>
 </html>"""

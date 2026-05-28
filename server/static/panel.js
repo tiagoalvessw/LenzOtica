@@ -15,6 +15,7 @@
     secs = 30;
     if (page === "config") loadConfigPage();
     if (page === "clientes") loadClients();
+    if (page === "agendamentos") applyFilter();
     if (page === "chat") { loadChatContacts(); loadGlobalIAStatus(); startChatPoll(); } else { stopChatPoll(); }
     // Ajusta overflow do main para o chat (layout fixo)
     const mainEl = document.querySelector("main");
@@ -1872,7 +1873,7 @@
       var preview  = _escHtml((c.last_message_role === "user" ? "" : "🤖 ") + (c.last_message||""));
       var unreadHtml = c.unread_count > 0 ? '<span class="chat-unread-badge">' + c.unread_count + '</span>' : "";
       var iaDot    = c.ia_enabled === false ? '<span title="IA pausada" style="color:#ef4444;font-size:.7rem">⏸</span>' : "";
-      return '<div class="chat-contact-item ' + active + '" onclick="openChat(\\'' + c.phone + '\\')" data-phone="' + _escHtml(c.phone) + '">' +
+      return '<div class="chat-contact-item ' + active + '" onclick="openChat(\'' + c.phone + '\')" data-phone="' + _escHtml(c.phone) + '">' +
         '<div class="chat-avatar" style="background:' + color + '">' + initials + '</div>' +
         '<div class="chat-contact-info">' +
           '<div class="chat-contact-name">' + _escHtml(c.name) + ' ' + iaDot + '</div>' +
