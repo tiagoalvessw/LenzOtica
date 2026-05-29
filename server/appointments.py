@@ -8,7 +8,7 @@ def _row(row: dict) -> dict:
     r = dict(row)
     r["date"] = str(r["date"])        # date  → "YYYY-MM-DD"
     r["time"] = str(r["time"])[:5]    # time  → "HH:MM"
-    for f in ("created_at", "confirmed_at", "attended_at", "completed_at", "archived_at"):
+    for f in ("created_at", "confirmed_at", "attended_at", "completed_at", "archived_at", "reminder_sent_at"):
         if r.get(f) is not None:
             r[f] = r[f].isoformat()
     return r
@@ -27,7 +27,8 @@ def save(data: list[dict]) -> None:
             UPDATE appointments SET
                 phone = %s, name = %s, date = %s, time = %s,
                 status = %s, event_id = %s, notes = %s,
-                confirmed_at = %s, attended_at = %s, completed_at = %s, archived_at = %s
+                confirmed_at = %s, attended_at = %s, completed_at = %s,
+                archived_at = %s, reminder_sent_at = %s
             WHERE id = %s
             """,
             (
@@ -35,6 +36,7 @@ def save(data: list[dict]) -> None:
                 apt["status"], apt.get("event_id", ""), apt.get("notes", ""),
                 apt.get("confirmed_at"), apt.get("attended_at"),
                 apt.get("completed_at"), apt.get("archived_at"),
+                apt.get("reminder_sent_at"),
                 apt["id"],
             ),
         )
@@ -82,14 +84,19 @@ def get_appointments_for_reminder() -> list[dict]:
 
 def mark_reminder_sent(phone: str, date_str: str, time_str: str) -> None:
     db.execute(
-        "UPDATE appointments SET status = 'reminder_sent' WHERE phone = %s AND date = %s AND time = %s AND status IN ('scheduled', 'day_reminder_sent')",
+        "UPDATE appointments SET status = 'reminder_sent', reminder_sent_at = now() WHERE phone = %s AND date = %s AND time = %s AND status IN ('scheduled', 'day_reminder_sent')",
         (phone, date_str, time_str),
     )
 
 
 def get_appointments_to_cancel() -> list[dict]:
     rows = db.fetchall(
-        "SELECT * FROM appointments WHERE status = 'reminder_sent' AND (date + time)::timestamp <= now()::timestamp"
+        """
+        SELECT * FROM appointments
+        WHERE status = 'reminder_sent'
+          AND reminder_sent_at IS NOT NULL
+          AND reminder_sent_at <= now() - interval '5 minutes'
+        """
     )
     return [_row(r) for r in rows]
 

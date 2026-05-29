@@ -101,9 +101,7 @@ def get_response(sender: str, message: str) -> str:
     system_tokens = _count_tokens(system_ctx)
     print(f"[AI] Tokens estimados do system prompt: {system_tokens}")
 
-    session.sessions[sender] = _trim_history(
-        session.sessions[sender], system_tokens
-    )
+    msgs_for_ai = _trim_history(list(session.sessions[sender]), system_tokens)
 
     response = None
     last_error = None
@@ -117,7 +115,7 @@ def get_response(sender: str, message: str) -> str:
                 response = client.chat.completions.create(
                     model=model,
                     messages=[{"role": "system", "content": system_ctx}]
-                    + [{"role": m["role"], "content": m["content"]} for m in session.sessions[sender]],
+                    + [{"role": m["role"], "content": m["content"]} for m in msgs_for_ai],
                     temperature=0.3,
                     max_tokens=320,
                 )

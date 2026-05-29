@@ -101,6 +101,20 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     pendente_tab    = len(pending_items)
     pending_json    = json.dumps(pending_items).replace("</", "<\\/")
 
+    today_apts_timeline = sorted(
+        [{"name": a["name"], "time": a["time"], "status": a["status"]}
+         for a in agendamentos
+         if a.get("date") == today and a.get("status") not in ("cancelled", "no_show", "completed")],
+        key=lambda x: x.get("time", "")
+    )
+    today_apts_json = json.dumps(today_apts_timeline).replace("</", "<\\/")
+
+    _sc: dict = {}
+    for _a in agendamentos:
+        _st = _a.get("status", "unknown")
+        _sc[_st] = _sc.get(_st, 0) + 1
+    status_counts_json = json.dumps(_sc).replace("</", "<\\/")
+
     attended_n = sum(1 for a in agendamentos if a["status"] in ("attended", "completed"))
     base_comp  = sum(1 for a in agendamentos if a["status"] in ("confirmed", "attended", "completed"))
     taxa_comp  = round(attended_n / base_comp * 100) if base_comp > 0 else 0
@@ -206,7 +220,7 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
             import re as _re
             _embed_url = _re.sub(r"mode=[^&]*", "mode=WEEK", calendar_embed_url)
         calendar_content = (
-            f'<iframe src="{_embed_url}" style="border:0;width:100%;height:620px;display:block;"'
+            f'<iframe src="{_embed_url}" style="border:0;width:100%;height:400px;display:block;"'
             ' frameborder="0" scrolling="no" allowfullscreen></iframe>'
         )
     else:
@@ -233,6 +247,8 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
   <link rel="stylesheet" href="/static/panel.css">
 </head>
 <body>
+
+<div id="sb-backdrop" class="sb-backdrop" onclick="closeMobileSidebar()"></div>
 
 <!-- SIDEBAR -->
 <aside class="sidebar" id="sidebar">
@@ -283,6 +299,9 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
 <!-- APP SHELL -->
 <div class="app-shell">
   <header>
+    <button class="mobile-menu-btn" onclick="toggleSidebar()" title="Menu">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
     <span class="header-title" id="header-title">Dashboard</span>
     <div class="header-right">
       <div class="refresh-wrap" id="refresh-wrap">
@@ -390,26 +409,64 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
           <div class="page-subtitle">Gerencie todos os agendamentos</div>
         </div>
       </div>
+
+      <!-- Banner proximo atendimento -->
+      <div class="next-appt-banner" id="next-appt-banner">
+        <span>&#128276;</span>
+        <div style="flex:1">
+          <span class="next-appt-name" id="next-appt-name"></span>
+          <span class="next-appt-countdown" id="next-appt-countdown"></span>
+        </div>
+      </div>
+
+      <!-- KPI Cards -->
+      <div class="agend-kpi-row">
+        <div class="agend-kpi-card kpi-blue" onclick="navToTab('agendamentos','day')" title="Ver atendimentos de hoje">
+          <div class="agend-kpi-icon">&#128197;</div>
+          <div class="agend-kpi-num" id="akpi-hoje">{hoje_dia_count}</div>
+          <div class="agend-kpi-lbl">Atendimentos Hoje</div>
+          <div class="agend-kpi-sub" id="akpi-hoje-sub"></div>
+        </div>
+        <div class="agend-kpi-card kpi-green" onclick="navToTab('agendamentos','confirmed')" title="Ver confirmados">
+          <div class="agend-kpi-icon">&#10003;</div>
+          <div class="agend-kpi-num" id="akpi-conf">{confirmados_tab}</div>
+          <div class="agend-kpi-lbl">Confirmados</div>
+          <div class="agend-kpi-sub" id="akpi-conf-sub"></div>
+        </div>
+        <div class="agend-kpi-card kpi-amber" onclick="navToTab('agendamentos','pending')" title="Ver pendencias">
+          <div class="agend-kpi-icon">&#9203;</div>
+          <div class="agend-kpi-num" id="akpi-pend">{pendente_tab}</div>
+          <div class="agend-kpi-lbl">Pendencias</div>
+          <div class="agend-kpi-sub" id="akpi-pend-sub"></div>
+        </div>
+        <div class="agend-kpi-card kpi-purple" id="akpi-next-card" style="cursor:default">
+          <div class="agend-kpi-icon">&#128336;</div>
+          <div class="agend-kpi-num" id="akpi-next-time" style="font-size:1.4rem">&#8212;</div>
+          <div class="agend-kpi-lbl">Proximo</div>
+          <div class="agend-kpi-sub" id="akpi-next-name"></div>
+        </div>
+      </div>
+
       <div class="layout">
         <div class="layout-left">
-          <div class="tab-nav">
+          <div class="tab-nav" id="agend-tab-nav">
             <button class="tab active" data-f="day" onclick="setTab(this)">
-              <span class="num">{hoje_dia_count}</span><span class="lbl">Atendimento do Dia</span>
+              Atend. Hoje <span class="tab-count">{hoje_dia_count}</span>
             </button>
             <button class="tab" data-f="confirmed" onclick="setTab(this)">
-              <span class="num">{confirmados_tab}</span><span class="lbl">Confirmado</span>
+              Confirmado <span class="tab-count">{confirmados_tab}</span>
             </button>
             <button class="tab" data-f="cancelled" onclick="setTab(this)">
-              <span class="num">{cancelados_tab}</span><span class="lbl">Cancelado</span>
+              Cancelado <span class="tab-count">{cancelados_tab}</span>
             </button>
             <button class="tab" data-f="completed" onclick="setTab(this)">
-              <span class="num">{concluidos_tab}</span><span class="lbl">Concluido</span>
+              Concluido <span class="tab-count">{concluidos_tab}</span>
             </button>
             <button class="tab" data-f="all" onclick="setTab(this)">
-              <span class="num">{total}</span><span class="lbl">Geral</span>
+              Geral <span class="tab-count">{total}</span>
             </button>
             <button class="tab" data-f="pending" onclick="setTab(this)">
-              <span class="num">{pendente_tab}</span><span class="lbl">Pendente</span>
+              Pendente <span class="tab-count">{pendente_tab}</span>
             </button>
           </div>
           <div class="panel" id="main-panel">
@@ -433,12 +490,35 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
                 Novo agendamento
               </button>
             </div>
+            <!-- Barra secundaria: chips de periodo, ordenacao e CSV -->
+            <div class="panel-toolbar-2">
+              <div class="period-chips">
+                <button class="period-chip pc-active" data-period="all" onclick="applyPeriodChip(this)">Todos</button>
+                <button class="period-chip" data-period="today" onclick="applyPeriodChip(this)">Hoje</button>
+                <button class="period-chip" data-period="tomorrow" onclick="applyPeriodChip(this)">Amanha</button>
+                <button class="period-chip" data-period="week" onclick="applyPeriodChip(this)">Esta semana</button>
+              </div>
+              <select class="sort-select" id="appt-sort" onchange="applyApptSort()">
+                <option value="">&#8597; Ordenar</option>
+                <option value="date-asc">Data &#8593;</option>
+                <option value="date-desc">Data &#8595;</option>
+                <option value="name-asc">Nome A-Z</option>
+                <option value="name-desc">Nome Z-A</option>
+                <option value="status">Status</option>
+              </select>
+              <button class="btn-csv" onclick="exportApptCSV()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Exportar CSV
+              </button>
+            </div>
             <div class="table-wrap">
               <table>
                 <thead><tr><th>Cliente</th><th>Telefone</th><th>Data</th><th>Hora</th><th>Faltam</th><th>Status</th><th>Acoes</th></tr></thead>
                 <tbody id="tbody">{body}</tbody>
               </table>
             </div>
+            <!-- Cards mobile (visivel so em telas pequenas) -->
+            <div class="appt-card-list" id="appt-card-list"></div>
             <div class="pagination" id="pagination">
               <span class="pagination-info" id="pg-info"></span>
               <div class="pagination-btns" id="pg-btns"></div>
@@ -458,6 +538,15 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         </div>
         <div id="resize-handle" class="resize-handle" title="Arrastar para redimensionar"></div>
         <div class="layout-right">
+          <!-- Grafico Donut de status -->
+          <div class="donut-panel">
+            <div class="donut-hdr">Distribuicao de Status</div>
+            <div class="donut-body">
+              <canvas id="donut-canvas" width="84" height="84" style="flex-shrink:0"></canvas>
+              <div class="donut-legend" id="donut-legend"></div>
+            </div>
+          </div>
+          <!-- Google Calendar -->
           <div class="calendar-panel">
             <div class="calendar-header"><span class="cal-dot"></span>Google Calendar</div>
             {calendar_content}
@@ -501,18 +590,59 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
           <div class="page-title">Clientes</div>
           <div class="page-subtitle">Cadastro, historico e acompanhamento de retorno</div>
         </div>
-        <button class="btn-new" onclick="openClientModal(null)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Novo Cliente
-        </button>
       </div>
 
+      <!-- Banner de aniversariantes (preenchido por JS) -->
+      <div id="birthday-banner" class="birthday-banner" style="display:none"></div>
+
       <!-- Metricas -->
-      <div class="metrics-grid">
-        <div class="metric-card mc-blue"><div class="metric-num" id="cm-total">—</div><div class="metric-lbl">Total Clientes</div></div>
-        <div class="metric-card mc-green"><div class="metric-num" id="cm-new">—</div><div class="metric-lbl">Novos este Mes</div></div>
-        <div class="metric-card mc-amber"><div class="metric-num" id="cm-upcoming">—</div><div class="metric-lbl">Retorno em 30 dias</div></div>
-        <div class="metric-card mc-red"><div class="metric-num" id="cm-overdue">—</div><div class="metric-lbl">Retorno Atrasado</div></div>
+      <div class="metrics-grid metrics-grid-5">
+        <div class="metric-card mc-blue" onclick="setClientFilterByKey('all')" title="Ver todos os clientes">
+          <div class="metric-icon mc-icon-blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <div class="metric-num" id="cm-total">&#8212;</div>
+          <div class="metric-lbl">Total Clientes</div>
+          <div class="metric-click-hint">Clique para ver todos</div>
+        </div>
+        <div class="metric-card mc-green">
+          <div class="metric-icon mc-icon-green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></div>
+          <div class="metric-num" id="cm-new">&#8212;</div>
+          <div class="metric-lbl">Novos este Mes</div>
+        </div>
+        <div class="metric-card mc-amber" onclick="setClientFilterByKey('upcoming')" title="Filtrar por retorno proximo">
+          <div class="metric-icon mc-icon-amber"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+          <div class="metric-num" id="cm-upcoming">&#8212;</div>
+          <div class="metric-lbl">Retorno em 30 dias</div>
+          <div class="metric-click-hint">Clique para filtrar</div>
+        </div>
+        <div class="metric-card mc-red" id="mc-overdue-card" onclick="setClientFilterByKey('overdue')" title="Filtrar retornos atrasados">
+          <div class="metric-icon mc-icon-red"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+          <div class="metric-num" id="cm-overdue">&#8212;</div>
+          <div class="metric-lbl">Retorno Atrasado</div>
+          <div class="metric-click-hint">Clique para filtrar</div>
+        </div>
+        <div class="metric-card mc-purple" onclick="setClientFilterByKey('birthday')" title="Filtrar aniversariantes do mes">
+          <div class="metric-icon mc-icon-purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><path d="M12 3c0 0-3 2.5-3 5a3 3 0 0 0 6 0c0-2.5-3-5-3-5z"/></svg></div>
+          <div class="metric-num" id="cm-birthday">&#8212;</div>
+          <div class="metric-lbl">Aniversarios no Mes</div>
+          <div class="metric-click-hint">Clique para filtrar</div>
+        </div>
+      </div>
+
+      <!-- Barra de distribuicao de status de retorno -->
+      <div class="return-dist-wrap" id="return-dist-wrap" style="display:none">
+        <div class="dist-legend-title">Distribuicao de Retorno</div>
+        <div class="return-dist-bar" id="return-dist-bar">
+          <div class="dist-seg seg-overdue"  id="ds-overdue"  style="width:0%"><span class="dist-seg-lbl"></span></div>
+          <div class="dist-seg seg-upcoming" id="ds-upcoming" style="width:0%"><span class="dist-seg-lbl"></span></div>
+          <div class="dist-seg seg-ok"       id="ds-ok"       style="width:0%"><span class="dist-seg-lbl"></span></div>
+          <div class="dist-seg seg-none"     id="ds-none"     style="width:0%"><span class="dist-seg-lbl"></span></div>
+        </div>
+        <div class="dist-legend">
+          <span><span class="dist-dot dot-overdue"></span> Atrasado (<span id="dl-overdue">0</span>)</span>
+          <span><span class="dist-dot dot-upcoming"></span> Proximo (<span id="dl-upcoming">0</span>)</span>
+          <span><span class="dist-dot dot-ok"></span> OK (<span id="dl-ok">0</span>)</span>
+          <span><span class="dist-dot dot-none"></span> Sem retorno (<span id="dl-none">0</span>)</span>
+        </div>
       </div>
 
       <!-- Tabela -->
@@ -523,11 +653,17 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
             <input id="client-search" type="text" placeholder="Buscar por nome, sobrenome ou telefone..." oninput="filterClients()" style="width:100%;padding:.5rem .8rem .5rem 2.2rem;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:.85rem;font-family:inherit;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s,box-shadow .15s">
           </div>
           <div class="clients-filters" id="clients-filters">
-            <button class="filter-chip active" data-cf="all"    onclick="setClientFilter(this)">Todos</button>
-            <button class="filter-chip"        data-cf="overdue" onclick="setClientFilter(this)">&#128308; Atrasado</button>
-            <button class="filter-chip"        data-cf="upcoming" onclick="setClientFilter(this)">&#128993; Proximo</button>
-            <button class="filter-chip"        data-cf="ok"      onclick="setClientFilter(this)">&#128994; OK</button>
+            <button class="filter-chip active" data-cf="all"      onclick="setClientFilter(this)">Todos</button>
+            <button class="filter-chip"        data-cf="overdue"   onclick="setClientFilter(this)">&#128308; Atrasado</button>
+            <button class="filter-chip"        data-cf="upcoming"  onclick="setClientFilter(this)">&#128993; Proximo</button>
+            <button class="filter-chip"        data-cf="ok"        onclick="setClientFilter(this)">&#128994; OK</button>
+            <button class="filter-chip fc-birthday" data-cf="birthday" onclick="setClientFilter(this)">&#127874; Aniversario</button>
           </div>
+          <span class="client-count-hint" id="client-count-hint"></span>
+          <button class="btn-view-toggle" id="btn-view-toggle" onclick="toggleClientView()" title="Alternar entre tabela e cards">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            <span class="vt-label">Cards</span>
+          </button>
           <button class="btn-new" onclick="openClientModal(null)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Novo Cliente
@@ -537,7 +673,8 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
             Exportar CSV
           </button>
         </div>
-        <div class="table-wrap">
+        <div id="clients-cards" class="clients-cards-grid" style="display:none"></div>
+        <div class="table-wrap" id="clients-table-wrap">
           <table>
             <thead>
               <tr>
@@ -561,6 +698,12 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
       </div>
     </section>
 
+    <!-- GAVETA DE DETALHES DO CLIENTE -->
+    <div id="client-drawer-overlay" class="client-drawer-overlay" onclick="closeClientDrawer()"></div>
+    <div id="client-drawer" class="client-drawer" role="dialog" aria-modal="true">
+      <div id="drawer-content" class="drawer-content"></div>
+    </div>
+
     <!-- CHAT CLIENTE -->
     <section id="page-chat" class="page">
       <div class="chat-layout" id="chat-layout">
@@ -573,28 +716,31 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#25D366" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 Conversas WhatsApp
               </div>
-              <button id="global-ia-btn" class="global-ia-btn ia-on" onclick="toggleGlobalIA()"
-                title="Clique para pausar ou retomar a IA globalmente">
-                <!-- Icone de robo -->
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="11" width="18" height="10" rx="2"/>
-                  <path d="M12 11V7"/>
-                  <circle cx="12" cy="5" r="2"/>
-                  <line x1="8" y1="15" x2="8" y2="15"/><line x1="16" y1="15" x2="16" y2="15"/>
-                  <path d="M8 19h8"/>
-                </svg>
-              </button>
+              <div style="display:flex;align-items:center;gap:.4rem">
+                <button id="chat-notif-btn" class="chat-notif-btn" onclick="requestChatNotifPermission()" title="Ativar notificacoes de desktop">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </button>
+                <button id="global-ia-btn" class="global-ia-btn ia-on" onclick="toggleGlobalIA()" title="Pausar ou retomar a IA globalmente">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7"/><circle cx="12" cy="5" r="2"/><line x1="8" y1="15" x2="8" y2="15"/><line x1="16" y1="15" x2="16" y2="15"/><path d="M8 19h8"/></svg>
+                </button>
+              </div>
             </div>
-            <!-- Banner de status da IA -->
             <div class="ia-global-banner ia-on" id="ia-global-banner">
               <span class="ia-banner-dot"></span>
               <span id="ia-global-banner-txt">IA ativa &mdash; respondendo automaticamente</span>
             </div>
             <input class="chat-search" id="chat-search" type="text" placeholder="Buscar por nome ou numero..." oninput="filterChatContacts()">
             <div class="chat-filter-row">
-              <button class="chat-filter-btn active" data-cf="all" onclick="setChatContactFilter(this)">Todos</button>
-              <button class="chat-filter-btn" data-cf="unread" onclick="setChatContactFilter(this)">Nao lidos</button>
-              <button class="chat-filter-btn" data-cf="ia-off" onclick="setChatContactFilter(this)">IA pausada</button>
+              <button class="chat-filter-btn active" data-cf="all"    onclick="setChatContactFilter(this)">Todos</button>
+              <button class="chat-filter-btn"        data-cf="unread" onclick="setChatContactFilter(this)">Nao lidos</button>
+              <button class="chat-filter-btn"        data-cf="ia-off" onclick="setChatContactFilter(this)">IA pausada</button>
+            </div>
+            <div class="chat-stats-row" id="chat-stats-row">
+              <span id="chat-stat-total">0 contatos</span>
+              <span class="chat-stats-dot"></span>
+              <span id="chat-stat-unread">0 nao lidos</span>
+              <span class="chat-stats-dot"></span>
+              <span id="chat-stat-ia-off">0 IA pausada</span>
             </div>
           </div>
           <div class="chat-contact-list" id="chat-contact-list">
@@ -605,41 +751,150 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
         <!-- Painel direito: conversa ativa -->
         <div class="chat-conv-panel" id="chat-conv-panel">
 
-          <!-- Estado vazio (nenhum contato selecionado) -->
+          <!-- Estado vazio -->
           <div class="chat-conv-empty" id="chat-conv-empty">
             <div class="chat-conv-empty-icon">&#128172;</div>
             <p>Selecione um contato para ver a conversa</p>
           </div>
 
-          <!-- Conversa ativa -->
-          <div id="chat-active-conv" style="display:none">
-            <!-- Header da conversa -->
-            <div class="chat-conv-header">
-              <div class="chat-avatar" id="conv-avatar" style="background:#2563eb">?</div>
-              <div class="chat-conv-info">
-                <div class="chat-conv-name" id="conv-name">—</div>
-                <div class="chat-conv-phone" id="conv-phone"></div>
+          <!-- Conversa ativa (flex row: coluna principal + sidebar info) -->
+          <div id="chat-active-conv" style="display:none;flex-direction:row;flex:1;overflow:hidden;min-height:0">
+
+            <!-- Coluna principal -->
+            <div class="chat-main-col" id="chat-main-col">
+
+              <!-- Header da conversa -->
+              <div class="chat-conv-header">
+                <button class="chat-back-btn" id="chat-back-btn" onclick="closeChatConv()" title="Voltar">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <div class="chat-avatar chat-avatar-lg" id="conv-avatar" style="background:#2563eb">?</div>
+                <div class="chat-conv-info">
+                  <div class="chat-conv-name" id="conv-name">&#8212;</div>
+                  <div class="chat-conv-sub">
+                    <span class="chat-conv-phone" id="conv-phone"></span>
+                    <span class="chat-conv-status-chip" id="conv-status-chip" onclick="openStatusPicker(event)"></span>
+                  </div>
+                </div>
+                <div class="chat-header-actions">
+                  <button id="conv-ia-btn" class="conv-hdr-btn conv-ia-on" onclick="toggleContactIA()" title="IA deste contato">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M12 11V7"/><circle cx="12" cy="5" r="2"/></svg>
+                    <span id="conv-ia-label">IA On</span>
+                  </button>
+                  <button class="conv-hdr-btn" onclick="navToClientAppt()" title="Agendamentos deste cliente">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </button>
+                  <button class="conv-hdr-btn" id="conv-search-btn" onclick="toggleConvSearch()" title="Buscar na conversa (Ctrl+F)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </button>
+                  <button class="conv-hdr-btn" id="conv-info-btn" onclick="toggleInfoSidebar()" title="Informacoes do cliente">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  </button>
+                </div>
               </div>
 
-            </div>
+              <!-- Barra de busca na conversa (oculta por padrao) -->
+              <div class="chat-conv-search-bar" id="conv-search-bar" style="display:none">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--muted)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input class="chat-csearch-input" id="conv-search-input" placeholder="Buscar mensagens..." oninput="searchConv()" onkeydown="searchConvKeydown(event)">
+                <span id="conv-search-count" class="chat-csearch-count"></span>
+                <button onclick="searchConvNav(-1)" class="chat-csearch-nav" title="Anterior">&#8593;</button>
+                <button onclick="searchConvNav(1)"  class="chat-csearch-nav" title="Proximo">&#8595;</button>
+                <button onclick="closeConvSearch()" class="chat-csearch-close">&#10005;</button>
+              </div>
 
-            <!-- Area de mensagens -->
-            <div class="chat-messages" id="chat-messages-area"></div>
+              <!-- Barra de acoes rapidas -->
+              <div class="chat-quick-actions" id="chat-quick-actions">
+                <button class="chat-qa-btn qa-resolve" onclick="quickResolve()" title="Marcar como resolvido">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Resolver
+                </button>
+                <button class="chat-qa-btn" onclick="navToClientAppt()" title="Ver agendamentos">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  Agendamentos
+                </button>
+                <button class="chat-qa-btn" onclick="toggleInfoSidebar()" title="Informacoes do cliente">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Info
+                </button>
+                <div style="flex:1"></div>
+                <span class="chat-msg-count-label" id="chat-msg-count-label"></span>
+              </div>
 
-
-            <!-- Barra de input -->
-            <div class="chat-input-bar">
-              <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem..." rows="1"
-                onkeydown="chatKeydown(event)" oninput="chatInputResize(this)"></textarea>
-              <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMsg()" title="Enviar (Enter)">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              <!-- Area de mensagens -->
+              <div class="chat-messages" id="chat-messages-area"></div>
+              <button class="chat-scroll-bottom" id="chat-scroll-bottom" onclick="scrollToBottom()" title="Ir ao final da conversa" style="display:none">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                <span class="chat-scroll-bottom-badge" id="chat-scroll-bottom-badge" style="display:none"></span>
               </button>
-            </div>
-          </div>
 
-        </div>
+              <!-- Barra de citacao (oculta por padrao) -->
+              <div class="chat-quote-bar" id="chat-quote-bar" style="display:none">
+                <div class="chat-quote-accent"></div>
+                <div class="chat-quote-text" id="chat-quote-text"></div>
+                <button onclick="clearQuote()" class="chat-quote-close">&#10005;</button>
+              </div>
+
+              <!-- Barra de input -->
+              <div class="chat-input-bar">
+                <button class="chat-tool-btn" id="emoji-btn" onclick="toggleEmojiPicker(event)" title="Emojis">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                </button>
+                <button class="chat-tool-btn" id="qr-btn" onclick="toggleQuickReplies(event)" title="Respostas rapidas">
+                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </button>
+                <textarea class="chat-textarea" id="chat-input" placeholder="Digite uma mensagem..." rows="1"
+                  onkeydown="chatKeydown(event)" oninput="chatInputResize(this);_updateCharCounter()"></textarea>
+                <span class="chat-char-counter" id="chat-char-counter"></span>
+                <button class="chat-send-btn" id="chat-send-btn" onclick="sendChatMsg()" title="Enviar (Enter)">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </button>
+              </div>
+
+            </div><!-- /chat-main-col -->
+
+            <!-- Sidebar de informacoes do cliente -->
+            <div class="chat-info-sidebar" id="chat-info-sidebar">
+              <div class="chat-info-hdr">
+                <span>Info do Cliente</span>
+                <button onclick="closeInfoSidebar()" class="chat-info-close">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div class="chat-info-body" id="chat-info-body">
+                <div style="text-align:center;color:var(--muted);padding:2rem;font-size:.82rem">Selecione um contato</div>
+              </div>
+            </div>
+
+          </div><!-- /chat-active-conv -->
+
+        </div><!-- /chat-conv-panel -->
+      </div><!-- /chat-layout -->
+
+      <!-- Emoji picker flutuante -->
+      <div class="chat-emoji-picker" id="chat-emoji-picker" style="display:none"></div>
+
+      <!-- Quick replies flutuante -->
+      <div class="chat-quick-replies" id="chat-quick-replies" style="display:none">
+        <div class="chat-qr-hdr">&#9889; Respostas Rapidas</div>
+        <div id="chat-qr-list"></div>
       </div>
+
+      <!-- Status picker flutuante -->
+      <div class="chat-status-picker" id="chat-status-picker" style="display:none">
+        <div class="chat-status-picker-hdr">Definir status</div>
+        <div id="chat-status-picker-list"></div>
+      </div>
+
     </section>
+
+    <!-- Lightbox de imagem -->
+    <div class="chat-lightbox" id="chat-lightbox" onclick="closeLightbox()" style="display:none">
+      <div class="chat-lightbox-inner" onclick="event.stopPropagation()">
+        <img id="chat-lightbox-img" src="" alt="">
+        <button class="chat-lightbox-close" onclick="closeLightbox()">&#10005;</button>
+      </div>
+    </div>
 
     <!-- CONFIGURACOES -->
     <section id="page-config" class="page">
@@ -1303,6 +1558,8 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     </section>
 
   </main>
+  <!-- FAB: Novo agendamento (mobile only) -->
+  <button class="fab-new" id="fab-new" onclick="openModal()" title="Novo agendamento" style="display:none">&#43;</button>
 </div>
 
 <!-- MODAIS -->
@@ -1627,6 +1884,8 @@ def render_panel(agendamentos: list, calendar_embed_url: str = "", admin_token: 
     chart30:           {chart30_json},
     chart30d:          {chart30d_json},
     chart_avg:         {_chart_avg},
+    today_apts:        {today_apts_json},
+    status_counts:     {status_counts_json},
   }};
 </script>
 <script src="/static/panel.js"></script>

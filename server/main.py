@@ -129,6 +129,7 @@ async def _sse_broadcast(event_type: str, data: dict) -> None:
 
 _processed_msgs: dict = {}
 _MSG_TTL = 30
+_orcamento_state: dict = {}  # phone → {"step": "name"|"image", "name": str}
 
 def _is_duplicate(msg_id: str) -> bool:
     now = time.time()
@@ -146,6 +147,9 @@ DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-
 
 _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "presente", "certo", "tá", "ta", "claro"}
 _NEGATIVE = {"não", "nao", "n", "cancelar", "reagendar", "remarcar", "não posso", "nao posso"}
+
+# Agendamentos pendentes de confirmação do cliente (antes de salvar no banco)
+_PENDING_BOOKING: dict = {}
 
 # _CAMPAIGN_MSG foi movido para bot_config (campos campaign_enabled + campaign_message)
 
@@ -1349,6 +1353,51 @@ async def set_ia_mode(phone: str, request: Request):
     return {"status": "ok", "ia_enabled": enabled}
 
 
+@app.get("/admin/chat/contact-info/{phone:path}", dependencies=[Depends(verify_token)])
+async def chat_contact_info(phone: str):
+    """Retorna dados do cliente + agendamentos para o painel lateral do chat."""
+    display_phone = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
+
+    client = db.fetchone(
+        """
+        SELECT first_name, last_name, notes,
+               return_date::text AS return_date,
+               visit_count,
+               last_appointment_date::text AS last_appointment_date
+        FROM clients
+        WHERE REPLACE(REPLACE(phone,'@s.whatsapp.net',''),'@lid','') = %s
+           OR phone = %s
+        LIMIT 1
+        """,
+        (display_phone, phone),
+    )
+
+    appointments = db.fetchall(
+        "SELECT name, date::text AS date, time, status"
+        " FROM appointments WHERE phone = %s ORDER BY created_at DESC LIMIT 8",
+        (phone,),
+    )
+
+    return {
+        "client": dict(client) if client else None,
+        "appointments": [dict(a) for a in appointments],
+    }
+
+
+@app.post("/admin/chat/note/{phone:path}", dependencies=[Depends(verify_token)])
+async def chat_save_note(phone: str, request: Request):
+    """Salva nota interna do operador sobre o cliente."""
+    body = await request.json()
+    note = body.get("note", "").strip()
+    display_phone = phone.replace("@s.whatsapp.net", "").replace("@lid", "")
+    db.execute(
+        "UPDATE clients SET notes = %s"
+        " WHERE REPLACE(REPLACE(phone,'@s.whatsapp.net',''),'@lid','') = %s OR phone = %s",
+        (note, display_phone, phone),
+    )
+    return {"status": "ok"}
+
+
 # Pares (texto_sem_break, texto_com_break) para casos onde o modelo
 # omite o token [BREAK] mesmo quando instruído. A verificação é
 # case-insensitive e tolerante a variações de espaçamento.
@@ -1666,6 +1715,17 @@ async def webhook(request: Request, event_path: str = ""):
         )
 
         if not text:
+            # Passo 2 → 3: cliente em fluxo de orçamento enviou a imagem da receita
+            if _orcamento_state.get(sender, {}).get("step") == "image" and "imageMessage" in message:
+                _name = _orcamento_state.pop(sender)["name"]
+                add_pending(sender, f"Orcamento solicitado — Nome: {_name}. Cliente enviou imagem da receita. Verificar no chat.")
+                _msg_final = "Estamos avaliando e em breve daremos um retorno."
+                await asyncio.sleep(_typing_delay(_msg_final))
+                await asyncio.to_thread(send_message, sender, _msg_final)
+                inject_assistant_message(sender, _msg_final)
+                _log(f"[ORCAMENTO] Receita recebida de {_name} ({sender}), pendencia criada.")
+                return {"status": "ok"}
+
             MEDIA_RESPONSES = {
                 "audioMessage":    _get_bot_cfg_str("msg_media_audio"),
                 "imageMessage":    _get_bot_cfg_str("msg_media_image"),
@@ -1707,6 +1767,94 @@ async def webhook(request: Request, event_path: str = ""):
             _log(f"[IA PAUSADA] Mensagem de {sender} salva sem resposta automática")
             return {"status": "ok"}
 
+        # Passo 1 → 2: cliente enviou o nome, agora pedir a imagem da receita
+        if _orcamento_state.get(sender, {}).get("step") == "name":
+            _orcamento_state[sender] = {"step": "image", "name": text.strip()}
+            _ask_img = "Obrigada! Agora pode enviar a foto da sua receita para que possamos avaliar."
+            await asyncio.to_thread(send_message, sender, _ask_img)
+            inject_assistant_message(sender, _ask_img)
+            _log(f"[ORCAMENTO] Nome recebido: {text.strip()} — aguardando imagem ({sender})")
+            return {"status": "ok"}
+
+        # Passo 0 → 1: cliente pediu orçamento → perguntar o nome completo
+        _ORCAMENTO_KEYWORDS = ("orçamento", "orcamento")
+        if any(k in text.lower() for k in _ORCAMENTO_KEYWORDS):
+            _orcamento_state[sender] = {"step": "name"}
+            _ask_name = "Claro! Para te fazer um orçamento, preciso primeiro do seu nome completo. Como devo registrar?"
+            await asyncio.to_thread(send_message, sender, _ask_name)
+            inject_assistant_message(sender, _ask_name)
+            _log(f"[ORCAMENTO] Aguardando nome do cliente — {sender}")
+            return {"status": "ok"}
+
+        # ── Confirmação de agendamento pendente (cliente ainda não respondeu SIM/NÃO) ──
+        if sender in _PENDING_BOOKING:
+            _pb = _PENDING_BOOKING[sender]
+            _intent = _classify_reminder_response(text)
+            if _intent == "confirm":
+                pb_name = _pb["name"]
+                pb_date = _pb["date"]
+                pb_time = _pb["time"]
+                del _PENDING_BOOKING[sender]
+                _log(f"[PENDENTE CONFIRMADO] {pb_name} | {pb_date} {pb_time} — {sender}")
+                try:
+                    pb_dt = datetime.fromisoformat(pb_date).replace(
+                        hour=int(pb_time.split(":")[0]),
+                        minute=int(pb_time.split(":")[1])
+                    )
+                except Exception:
+                    pb_dt = None
+                _auto_cancel_pb = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received")
+                for _prev in [a for a in load_appointments() if a["phone"] == sender and a["status"] in _auto_cancel_pb]:
+                    try:
+                        cancel_event(_prev.get("event_id", ""))
+                    except Exception as _e:
+                        print(f"[CALENDAR ERROR] cancel prev: {_e}")
+                    cancel_appointment(sender, _prev["date"], _prev["time"])
+                try:
+                    _pb_eid = await asyncio.to_thread(create_event, pb_name, pb_date, pb_time, sender)
+                except Exception as _e:
+                    print(f"[CALENDAR ERROR] {_e}")
+                    _pb_eid = ""
+                add_appointment(sender, pb_name, pb_date, pb_time, _pb_eid)
+                clients_mod.upsert_from_appointment(sender, pb_name, pb_date)
+                if pb_dt:
+                    _ddisplay = f"{DIAS[pb_dt.weekday()]} {pb_dt.day:02d}/{pb_dt.month:02d}/{pb_dt.year}"
+                else:
+                    _ddisplay = pb_date
+                _tdisplay = pb_time.replace(":", "h")
+                _conf_parts = [
+                    f"Agendamento confirmado! 📝\nTipo de agendamento: {_get_bot_cfg_str('confirmation_appointment_type')}\n➡️ {_ddisplay} às {_tdisplay}\nCliente: {pb_name}",
+                    f"📍 Nosso endereço: {_get_bot_cfg_str('confirmation_address')}",
+                    f"📣 {_get_bot_cfg_str('confirmation_footer')}",
+                ]
+                for _ci, _cp in enumerate(_conf_parts):
+                    if _ci > 0:
+                        await asyncio.sleep(_typing_delay(_cp))
+                    await asyncio.to_thread(send_message, sender, _cp)
+                inject_assistant_message(
+                    sender,
+                    f"Agendamento de {pb_name} em {pb_date} às {pb_time} registrado no sistema. "
+                    f"Não vou gerar [AGENDAR:...] novamente nesta conversa."
+                )
+                return {"status": "ok"}
+            elif _intent == "cancel":
+                del _PENDING_BOOKING[sender]
+                _log(f"[PENDENTE CANCELADO] {sender}")
+                _msg_nc = "Tudo bem! Agendamento não realizado. Quando quiser marcar, é só nos chamar! 😊"
+                await asyncio.to_thread(send_message, sender, _msg_nc)
+                inject_assistant_message(sender, _msg_nc)
+                return {"status": "ok"}
+            else:
+                _pb_date_br = format_date_br(_pb["date"])
+                _msg_unk = (
+                    f"Não consegui entender. Para confirmar o agendamento de "
+                    f"*{_pb['name']}* em *{_pb_date_br}* às *{_pb['time']}*, responda:\n"
+                    f"*SIM* para confirmar ✅\n*NÃO* para cancelar ❌"
+                )
+                await asyncio.to_thread(send_message, sender, _msg_unk)
+                inject_assistant_message(sender, _msg_unk)
+                return {"status": "ok"}
+
         if has_pending_reminder(sender):
             intent = _classify_reminder_response(text)
             if intent == "confirm":
@@ -1727,21 +1875,11 @@ async def webhook(request: Request, event_path: str = ""):
                 inject_assistant_message(sender, msg)
                 return {"status": "ok"}
             else:
-                name = next(
-                    (a["name"] for a in load_appointments() if a["phone"] == sender and a["status"] == "reminder_sent"),
-                    ""
-                )
-                for apt in [a for a in load_appointments() if a["phone"] == sender and a["status"] == "reminder_sent"]:
-                    try:
-                        cancel_event(apt.get("event_id", ""))
-                    except Exception as e:
-                        print(f"[CALENDAR ERROR] {e}")
-                cancel_pending_reminders(sender)
-                name_txt = f" {name}," if name else ","
                 msg = (
-                    f"Oi{name_txt} não consegui finalizar seu atendimento. "
-                    f"Gostaria de remarcar sua consulta? "
-                    f"Responda *SIM* para reagendar ou *NÃO* para encerrar por aqui."
+                    "Não consegui entender sua resposta.\n"
+                    "Por favor, responda apenas:\n"
+                    "*SIM* para confirmar sua presença\n"
+                    "*NÃO* caso precise reagendar"
                 )
                 send_message(sender, msg)
                 inject_assistant_message(sender, msg)
@@ -1820,40 +1958,17 @@ async def webhook(request: Request, event_path: str = ""):
                         send_message(sender, part.split("[AGENDAR:")[0].strip())
                         continue
 
-                    _active = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received", "confirmed")
-                    for _prev in [a for a in load_appointments() if a["phone"] == sender and a["status"] in _active]:
-                        try:
-                            cancel_event(_prev.get("event_id", ""))
-                        except Exception as e:
-                            print(f"[CALENDAR ERROR] cancel prev: {e}")
-                        cancel_appointment(sender, _prev["date"], _prev["time"])
-                        print(f"[REAGENDAMENTO] Anterior cancelado: {_prev['date']} {_prev['time']}")
-
-                    try:
-                        event_id = await asyncio.to_thread(create_event, name, date_str, time_str, sender)
-                    except Exception as e:
-                        print(f"[CALENDAR ERROR] {e}")
-                        event_id = ""
-                    add_appointment(sender, name, date_str, time_str, event_id)
-                    clients_mod.upsert_from_appointment(sender, name, date_str)
-                    date_display = f"{DIAS[dt.weekday()]} {dt.day:02d}/{dt.month:02d}/{dt.year}"
-                    time_display = time_str.replace(":", "h")
-
-                    confirmation_parts = [
-                        f"Agendamento confirmado! 📝\nTipo de agendamento: {_get_bot_cfg_str('confirmation_appointment_type')}\n➡️ {date_display} às {time_display}\nCliente: {name}",
-                        f"📍 Nosso endereço: {_get_bot_cfg_str('confirmation_address')}",
-                        f"📣 {_get_bot_cfg_str('confirmation_footer')}",
-                    ]
-                    for i, part in enumerate(confirmation_parts):
-                        if i > 0:
-                            await asyncio.sleep(_typing_delay(part))
-                        await asyncio.to_thread(send_message, sender, part)
-                    confirmation = "\n".join(confirmation_parts)
+                    # Armazena pendência — aguarda SIM/NÃO do cliente antes de salvar no banco
+                    pre_text = MARKER.sub("", part).strip()
+                    if pre_text:
+                        await asyncio.to_thread(send_message, sender, pre_text)
+                    _PENDING_BOOKING[sender] = {"name": name, "date": date_str, "time": time_str}
                     inject_assistant_message(
                         sender,
-                        f"Agendamento de {name} em {date_str} às {time_str} já registrado no sistema. "
-                        f"Não vou gerar [AGENDAR:...] novamente nesta conversa."
+                        f"[Sistema: agendamento de {name} em {date_str} às {time_str} aguardando confirmação do cliente. "
+                        f"Não gere [AGENDAR:...] novamente até receber SIM ou NÃO.]"
                     )
+                    _log(f"[PENDENTE] {name} | {date_str} {time_str} — aguardando confirmação de {sender}")
                 else:
                     clean = MARKER.sub("", part).strip()
                     if clean:
