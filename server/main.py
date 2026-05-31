@@ -148,9 +148,6 @@ DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-
 _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "presente", "certo", "tá", "ta", "claro"}
 _NEGATIVE = {"não", "nao", "n", "cancelar", "reagendar", "remarcar", "não posso", "nao posso"}
 
-# Agendamentos pendentes de confirmação do cliente (antes de salvar no banco)
-_PENDING_BOOKING: dict = {}
-
 # _CAMPAIGN_MSG foi movido para bot_config (campos campaign_enabled + campaign_message)
 
 def _is_campaign_response(text: str) -> bool:
@@ -1410,19 +1407,34 @@ _BREAK_FIXES: list[tuple[str, str]] = [
         "pode passar direto com o oftalmologista. Por favor, entre em contato",
         "pode passar direto com o oftalmologista.[BREAK]Por favor, entre em contato",
     ),
+    # Fluxo de agendamento: campanha → verificação → horários
+    (
+        "clientes. Vou verificar",
+        "clientes.[BREAK]Vou verificar",
+    ),
+    (
+        "clientes! Vou verificar",
+        "clientes![BREAK]Vou verificar",
+    ),
+    (
+        "momento. Ok, para",
+        "momento.[BREAK]Ok, para",
+    ),
+    (
+        "momento. Temos disponível",
+        "momento.[BREAK]Temos disponível",
+    ),
 ]
 
 
 def _restore_breaks(reply: str) -> str:
-    """Injeta [BREAK] em respostas onde o modelo omitiu o token obrigatório."""
-    if "[BREAK]" in reply:
-        return reply
+    """Injeta [BREAK] em respostas onde o modelo omitiu o token obrigatório.
+    Aplica todos os padrões correspondentes (não para no primeiro)."""
     for pattern, replacement in _BREAK_FIXES:
-        if pattern.lower() in reply.lower():
-            # Preserva casing original — substitui apenas a primeira ocorrência
-            idx = reply.lower().find(pattern.lower())
+        reply_lower = reply.lower()
+        if pattern.lower() in reply_lower:
+            idx = reply_lower.find(pattern.lower())
             reply = reply[:idx] + replacement + reply[idx + len(pattern):]
-            break
     return reply
 
 
@@ -1786,75 +1798,6 @@ async def webhook(request: Request, event_path: str = ""):
             _log(f"[ORCAMENTO] Aguardando nome do cliente — {sender}")
             return {"status": "ok"}
 
-        # ── Confirmação de agendamento pendente (cliente ainda não respondeu SIM/NÃO) ──
-        if sender in _PENDING_BOOKING:
-            _pb = _PENDING_BOOKING[sender]
-            _intent = _classify_reminder_response(text)
-            if _intent == "confirm":
-                pb_name = _pb["name"]
-                pb_date = _pb["date"]
-                pb_time = _pb["time"]
-                del _PENDING_BOOKING[sender]
-                _log(f"[PENDENTE CONFIRMADO] {pb_name} | {pb_date} {pb_time} — {sender}")
-                try:
-                    pb_dt = datetime.fromisoformat(pb_date).replace(
-                        hour=int(pb_time.split(":")[0]),
-                        minute=int(pb_time.split(":")[1])
-                    )
-                except Exception:
-                    pb_dt = None
-                _auto_cancel_pb = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received")
-                for _prev in [a for a in load_appointments() if a["phone"] == sender and a["status"] in _auto_cancel_pb]:
-                    try:
-                        cancel_event(_prev.get("event_id", ""))
-                    except Exception as _e:
-                        print(f"[CALENDAR ERROR] cancel prev: {_e}")
-                    cancel_appointment(sender, _prev["date"], _prev["time"])
-                try:
-                    _pb_eid = await asyncio.to_thread(create_event, pb_name, pb_date, pb_time, sender)
-                except Exception as _e:
-                    print(f"[CALENDAR ERROR] {_e}")
-                    _pb_eid = ""
-                add_appointment(sender, pb_name, pb_date, pb_time, _pb_eid)
-                clients_mod.upsert_from_appointment(sender, pb_name, pb_date)
-                if pb_dt:
-                    _ddisplay = f"{DIAS[pb_dt.weekday()]} {pb_dt.day:02d}/{pb_dt.month:02d}/{pb_dt.year}"
-                else:
-                    _ddisplay = pb_date
-                _tdisplay = pb_time.replace(":", "h")
-                _conf_parts = [
-                    f"Agendamento confirmado! 📝\nTipo de agendamento: {_get_bot_cfg_str('confirmation_appointment_type')}\n➡️ {_ddisplay} às {_tdisplay}\nCliente: {pb_name}",
-                    f"📍 Nosso endereço: {_get_bot_cfg_str('confirmation_address')}",
-                    f"📣 {_get_bot_cfg_str('confirmation_footer')}",
-                ]
-                for _ci, _cp in enumerate(_conf_parts):
-                    if _ci > 0:
-                        await asyncio.sleep(_typing_delay(_cp))
-                    await asyncio.to_thread(send_message, sender, _cp)
-                inject_assistant_message(
-                    sender,
-                    f"Agendamento de {pb_name} em {pb_date} às {pb_time} registrado no sistema. "
-                    f"Não vou gerar [AGENDAR:...] novamente nesta conversa."
-                )
-                return {"status": "ok"}
-            elif _intent == "cancel":
-                del _PENDING_BOOKING[sender]
-                _log(f"[PENDENTE CANCELADO] {sender}")
-                _msg_nc = "Tudo bem! Agendamento não realizado. Quando quiser marcar, é só nos chamar! 😊"
-                await asyncio.to_thread(send_message, sender, _msg_nc)
-                inject_assistant_message(sender, _msg_nc)
-                return {"status": "ok"}
-            else:
-                _pb_date_br = format_date_br(_pb["date"])
-                _msg_unk = (
-                    f"Não consegui entender. Para confirmar o agendamento de "
-                    f"*{_pb['name']}* em *{_pb_date_br}* às *{_pb['time']}*, responda:\n"
-                    f"*SIM* para confirmar ✅\n*NÃO* para cancelar ❌"
-                )
-                await asyncio.to_thread(send_message, sender, _msg_unk)
-                inject_assistant_message(sender, _msg_unk)
-                return {"status": "ok"}
-
         if has_pending_reminder(sender):
             intent = _classify_reminder_response(text)
             if intent == "confirm":
@@ -1958,17 +1901,47 @@ async def webhook(request: Request, event_path: str = ""):
                         send_message(sender, part.split("[AGENDAR:")[0].strip())
                         continue
 
-                    # Armazena pendência — aguarda SIM/NÃO do cliente antes de salvar no banco
+                    # Cliente já confirmou via Liza — salva o agendamento diretamente
                     pre_text = MARKER.sub("", part).strip()
                     if pre_text:
                         await asyncio.to_thread(send_message, sender, pre_text)
-                    _PENDING_BOOKING[sender] = {"name": name, "date": date_str, "time": time_str}
+                    _auto_cancel_st = ("scheduled", "day_reminder_sent", "reminder_sent", "response_received")
+                    for _prev in [a for a in load_appointments() if a["phone"] == sender and a["status"] in _auto_cancel_st]:
+                        try:
+                            cancel_event(_prev.get("event_id", ""))
+                        except Exception as _ce:
+                            _log(f"[CALENDAR ERROR] cancel prev: {_ce}")
+                        cancel_appointment(sender, _prev["date"], _prev["time"])
+                    try:
+                        _eid = await asyncio.to_thread(create_event, name, date_str, time_str, sender)
+                    except Exception as _ce:
+                        _log(f"[CALENDAR ERROR] create_event: {_ce}")
+                        _eid = ""
+                    add_appointment(sender, name, date_str, time_str, _eid)
+                    clients_mod.upsert_from_appointment(sender, name, date_str)
+                    _dt_conf = datetime.fromisoformat(date_str)
+                    _ddisplay = f"{DIAS[_dt_conf.weekday()]} {_dt_conf.day:02d}/{_dt_conf.month:02d}/{_dt_conf.year}"
+                    _tdisplay = time_str.replace(":", "h")
+                    _conf_parts = [
+                        (
+                            f"Agendamento confirmado! 📝\n"
+                            f"Tipo: {_get_bot_cfg_str('confirmation_appointment_type')}\n"
+                            f"➡️ {_ddisplay} às {_tdisplay}\nCliente: {name}"
+                        ),
+                        f"📍 Nosso endereço: {_get_bot_cfg_str('confirmation_address')}",
+                        f"📣 {_get_bot_cfg_str('confirmation_footer')}",
+                    ]
+                    for _ci, _cp in enumerate(_conf_parts):
+                        if _ci > 0:
+                            await asyncio.sleep(_typing_delay(_cp))
+                        await asyncio.to_thread(send_message, sender, _cp)
+                        inject_assistant_message(sender, _cp)
                     inject_assistant_message(
                         sender,
-                        f"[Sistema: agendamento de {name} em {date_str} às {time_str} aguardando confirmação do cliente. "
-                        f"Não gere [AGENDAR:...] novamente até receber SIM ou NÃO.]"
+                        f"Agendamento de {name} em {date_str} às {time_str} registrado no sistema. "
+                        f"Não vou gerar [AGENDAR:...] novamente nesta conversa."
                     )
-                    _log(f"[PENDENTE] {name} | {date_str} {time_str} — aguardando confirmação de {sender}")
+                    _log(f"[AGENDADO] {name} | {date_str} {time_str} — {sender}")
                 else:
                     clean = MARKER.sub("", part).strip()
                     if clean:

@@ -26,6 +26,7 @@ Constantes editáveis:
 Partes configuráveis via painel: bot_name, store_name, store_address,
 store_notes (hint de navegação), bot_extra_rules e FAQ.
 """
+import re
 try:
     from . import db          # importação relativa (quando usado como pacote)
 except ImportError:
@@ -51,9 +52,20 @@ CAMPAIGN_MSG   = (
     "completo gratuito para nossos clientes."
 )
 SLOTS_TEMPLATE = (
-    "Ok, para hoje tenho os seguintes horários: "
-    "HH:MM | HH:MM | HH:MM | HH:MM | HH:MM — qual horário fica melhor para você?"
+    "Ok, para [DIA] tenho os seguintes horários: "
+    "HH:MM | HH:MM | HH:MM | HH:MM | HH:MM — qual horário fica melhor para você?\n"
+    "(Substitua [DIA] por 'hoje' se o primeiro dia disponível for hoje, "
+    "ou pelo nome do dia da semana, ex: 'segunda-feira'.)"
 )
+
+
+def _announcement_only(campaign_msg: str) -> str:
+    """Remove perguntas de CTA da mensagem de campanha para uso no fluxo de agendamento."""
+    sentences = re.split(r'(?<=[.!?])\s+', campaign_msg.strip())
+    announcement = ' '.join(s for s in sentences if not s.strip().endswith('?')).strip()
+    if announcement and announcement[-1] not in '.!':
+        announcement += '.'
+    return announcement or campaign_msg
 
 
 # ── Construtores de seção (privados) ──────────────────────────────────────────
@@ -89,8 +101,14 @@ def _secao_identidade(
     )
 
 
-def _secao_saudacao(bot_name: str, store_name: str) -> str:
+def _secao_saudacao(bot_name: str, store_name: str, campaign_enabled: bool = True) -> str:
     """Regras de saudação por horário e formato obrigatório da primeira mensagem."""
+    excecao = (
+        f"EXCEÇÃO ABSOLUTA: se no histórico já houver uma mensagem de campanha "
+        f'(contendo "campanha de exame de vista" ou "teria interesse em agendar"), '
+        f"PULE a saudação e vá direto para o Caminho A da seção CAMPANHA."
+        if campaign_enabled else ""
+    )
     return (
         f'Saudação por horário: 00h–11h59: "Bom dia" | 12h–17h59: "Boa tarde" | 18h–23h59: "Boa noite"\n'
         f'REGRA: use a saudação APENAS na primeira mensagem do contato. '
@@ -100,43 +118,57 @@ def _secao_saudacao(bot_name: str, store_name: str) -> str:
         f'Formato fixo: "[Saudação]! Me chamo {bot_name}, como posso ajudá-lo(a)?"\n'
         f'Exemplo às 23h: "Boa noite! Me chamo {bot_name}, como posso ajudá-lo(a)?"\n'
         f"NUNCA omita o nome na primeira mensagem.\n"
-        f"EXCEÇÃO ABSOLUTA: se no histórico já houver uma mensagem de campanha "
-        f'(contendo "campanha de exame de vista" ou "teria interesse em agendar"), '
-        f"PULE a saudação e vá direto para o Caminho A da seção CAMPANHA."
+        + excecao
     )
 
 
-def _secao_convenio(campaign_msg: str) -> str:
+def _secao_convenio(campaign_msg: str, campaign_enabled: bool = True) -> str:
     """Resposta quando o cliente pergunta sobre convênio ou plano de saúde."""
-    msg_lower = campaign_msg[0].lower() + campaign_msg[1:]
+    if campaign_enabled:
+        announcement = _announcement_only(campaign_msg)
+        msg_lower = announcement[0].lower() + announcement[1:]
+        primeiro_bloco = f"Não, mas {msg_lower}[BREAK]Você gostaria de agendar sua consulta?"
+    else:
+        primeiro_bloco = "Não trabalhamos com convênio, mas você pode agendar sua consulta normalmente. Você gostaria?"
     return (
         f"Se o cliente perguntou sobre CONVÊNIO ou plano de saúde "
         f"(sem pedir agendamento explicitamente):\n"
-        f"- Use exatamente um [BREAK] separando dois blocos:\n"
-        f"  Não, mas {msg_lower}[BREAK]Você gostaria de agendar sua consulta?\n"
+        f"- Responda com exatamente um [BREAK] separando dois blocos:\n"
+        f"  {primeiro_bloco}\n"
         f"- AGUARDE a resposta. NÃO mostre horários antes da confirmação.\n"
         f"- Se o cliente confirmar (sim, quero, etc.): use APENAS um [BREAK]:\n"
-        f"  Vou verificar a disponibilidade para hoje, só um momento.[BREAK]{SLOTS_TEMPLATE}"
+        f"  Vou verificar a disponibilidade, só um momento.[BREAK]{SLOTS_TEMPLATE}"
     )
 
 
-def _secao_agendamento(campaign_msg: str) -> str:
+def _secao_agendamento(campaign_msg: str, campaign_enabled: bool = True) -> str:
     """Formato obrigatório de agendamento, regras de horários e coleta de dados."""
+    if campaign_enabled:
+        announcement = _announcement_only(campaign_msg)
+        intro_agendamento = (
+            f"PASSO OBRIGATÓRIO — verifique o histórico ANTES de responder:\n"
+            f"\n"
+            f'→ SE "campanha de exame de vista completo gratuito" NÃO aparece no histórico:\n'
+            f"  Use dois [BREAK] separando exatamente três blocos (o [BREAK] deve aparecer literalmente):\n"
+            f"  {announcement}[BREAK]"
+            f"Vou verificar a disponibilidade, só um momento.[BREAK]{SLOTS_TEMPLATE}\n"
+            f"  (Se ainda não houve saudação, inclua-a antes do primeiro bloco.)\n"
+            f"\n"
+            f'→ SE "campanha de exame de vista completo gratuito" JÁ aparece no histórico '
+            f"(mesmo que com prefixo como \"Não, mas...\"):\n"
+            f"  Use apenas um [BREAK] — NÃO repita a campanha:\n"
+            f"  Vou verificar a disponibilidade, só um momento.[BREAK]{SLOTS_TEMPLATE}\n"
+        )
+    else:
+        intro_agendamento = (
+            f"Use exatamente um [BREAK] separando dois blocos (o [BREAK] deve aparecer literalmente):\n"
+            f"  Vou verificar a disponibilidade, só um momento.[BREAK]{SLOTS_TEMPLATE}\n"
+        )
     return (
         f"Se o cliente mencionou CONSULTA ou agendar:\n"
         f"\n"
-        f"PASSO OBRIGATÓRIO — verifique o histórico ANTES de responder:\n"
-        f"\n"
-        f'→ SE "campanha de exame de vista completo gratuito" NÃO aparece no histórico:\n'
-        f"  Use dois [BREAK] separando três blocos:\n"
-        f"  {campaign_msg}[BREAK]"
-        f"Vou verificar a disponibilidade para hoje, só um momento.[BREAK]{SLOTS_TEMPLATE}\n"
-        f"  (Se ainda não houve saudação, inclua-a antes do primeiro bloco.)\n"
-        f"\n"
-        f'→ SE "campanha de exame de vista completo gratuito" JÁ aparece no histórico '
-        f"(mesmo que com prefixo como \"Não, mas...\"):\n"
-        f"  Use apenas um [BREAK] — NÃO repita a campanha:\n"
-        f"  Vou verificar a disponibilidade para hoje, só um momento.[BREAK]{SLOTS_TEMPLATE}\n"
+        + intro_agendamento
+        + f"\n"
         f"\n"
         f"HORÁRIOS — NUNCA IGNORE:\n"
         f"- Apresente EXATAMENTE 5 horários (os 5 primeiros da lista do contexto). "
@@ -146,6 +178,9 @@ def _secao_agendamento(campaign_msg: str) -> str:
         f"- Ao cliente escolher outro dia, apresente também EXATAMENTE 5 horários desse dia.\n"
         f"- Se o cliente pedir horário fora da lista: recuse gentilmente e sugira alternativa da lista.\n"
         f"- Nunca aceite datas passadas nem horários fora da lista.\n"
+        f"- INTERPRETAÇÃO DE HORÁRIO: ao receber respostas como '10h', '10hrs', '10:00', 'dez horas', "
+        f"'as 10', mapeie para o horário EXATO da lista (ex: '10h' → '10:00'). "
+        f"NUNCA confunda '10h' com '09:00' ou qualquer outro horário. Confirme sempre o horário que o cliente escolheu.\n"
         f"\n"
         f"Horários de funcionamento (a lista do contexto já reflete estas regras):\n"
         f"  Segunda e Sexta: 9h–18h | Quarta e Quinta: 9h–12h\n"
@@ -260,8 +295,10 @@ def _secao_pos_agendamento() -> str:
     )
 
 
-def _secao_campanha(campaign_msg: str) -> str:
+def _secao_campanha(campaign_msg: str, campaign_enabled: bool = True) -> str:
     """Caminhos de resposta quando o cliente reage a uma campanha enviada pelo operador."""
+    if not campaign_enabled:
+        return ""
     return (
         f"Se o cliente está respondendo a uma CAMPANHA enviada pelo operador:\n"
         f"REGRA CRÍTICA: escolha APENAS UM dos três caminhos abaixo. Nunca misture respostas de caminhos diferentes.\n"
@@ -334,12 +371,13 @@ def build_prompt(bot_config: dict, faq_items: list) -> str:
         String do prompt pronta para ser salva em rag_config.system_prompt
     """
     # ── Extrair e normalizar dados ────────────────────────────────────────────
-    bot_name      = (bot_config.get("bot_name")        or DEFAULT_BOT_NAME).strip()
-    store_name    = (bot_config.get("store_name")       or DEFAULT_STORE_NAME).strip()
-    store_address = (bot_config.get("store_address")    or DEFAULT_ADDRESS).strip()
-    store_notes   = (bot_config.get("store_notes")      or "").strip()
-    extra_raw     = (bot_config.get("bot_extra_rules")  or "").strip()
-    campaign_msg  = (bot_config.get("campaign_message") or CAMPAIGN_MSG).strip()
+    bot_name         = (bot_config.get("bot_name")        or DEFAULT_BOT_NAME).strip()
+    store_name       = (bot_config.get("store_name")       or DEFAULT_STORE_NAME).strip()
+    store_address    = (bot_config.get("store_address")    or DEFAULT_ADDRESS).strip()
+    store_notes      = (bot_config.get("store_notes")      or "").strip()
+    extra_raw        = (bot_config.get("bot_extra_rules")  or "").strip()
+    campaign_msg     = (bot_config.get("campaign_message") or CAMPAIGN_MSG).strip()
+    campaign_enabled = bool(bot_config.get("campaign_enabled", True))
 
     # Regras extras opcionais (campo Identidade → Regras Extras no painel)
     extra_lines = [line.strip() for line in extra_raw.split("\n") if line.strip()]
@@ -357,12 +395,12 @@ def build_prompt(bot_config: dict, faq_items: list) -> str:
     # ── Montar e unir seções ──────────────────────────────────────────────────
     secoes = [
         _secao_identidade(bot_name, store_name, store_address, extra_block),
-        _secao_saudacao(bot_name, store_name),
-        _secao_convenio(campaign_msg),
-        _secao_agendamento(campaign_msg),
+        _secao_saudacao(bot_name, store_name, campaign_enabled),
+        _secao_convenio(campaign_msg, campaign_enabled),
+        _secao_agendamento(campaign_msg, campaign_enabled),
         _secao_cenarios(nav_hint),
         _secao_pos_agendamento(),
-        _secao_campanha(campaign_msg),
+        _secao_campanha(campaign_msg, campaign_enabled),
         _secao_faq(faq_items),
     ]
 
