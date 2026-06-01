@@ -171,7 +171,7 @@ def get_response(sender: str, message: str) -> str:
 
     reply = response.choices[0].message.content
 
-    reply_for_history = re.sub(r'\[AGENDAR:[^\]]*\]|\[PENDENTE:[^\]]*\]', "", reply)
+    reply_for_history = re.sub(r'\[AGENDAR:[^\]]*\]|\[PENDENTE:[^\]]*\]|\[SLOT:[^\]]*\]', "", reply)
     reply_for_history = reply_for_history.replace("[BREAK]", " ")
     reply_for_history = re.sub(r'\s{2,}', " ", reply_for_history).strip()
 

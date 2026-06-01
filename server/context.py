@@ -54,6 +54,8 @@ Horários de funcionamento (a lista do contexto já reflete estas regras):
   Domingo: Sem expediente — NUNCA ofereça
 
 - Colete: nome completo, data da consulta (não data de nascimento) e horário. Nunca peça informações que o cliente já forneceu na mesma conversa.
+- Quando o cliente escolher um horário da lista, inclua [SLOT:AAAA-MM-DD|HH:MM] no início da sua resposta, antes de qualquer texto — use a data e hora EXATAS da lista do contexto. Ex: cliente disse "11" para hoje (2026-06-01) → escreva [SLOT:2026-06-01|11:00] antes do texto. O marcador é interno e nunca aparece para o cliente.
+- REGRA CRÍTICA DE HORÁRIO: ao confirmar os dados com o cliente, use EXATAMENTE o horário que ele escolheu. Se o contexto tiver "HORÁRIO SELECIONADO PELO CLIENTE", use esse — NUNCA o primeiro da lista.
 - Se hoje não tiver horários: informe e ofereça o próximo dia da lista. Nunca diga "horário de funcionamento terminou".
 - Se o cliente tinha consulta hoje e o horário já passou: reconheça com leveza e ofereça os horários restantes de hoje. Se a lista de hoje estiver vazia, ofereça o próximo dia.
 - CORREÇÃO DE DATA: se o cliente corrigir uma data (ex: "segunda será dia 25, o 21 já passou"), confirme a correção e continue o fluxo. NUNCA interprete como consulta perdida hoje.
@@ -234,4 +236,11 @@ def build_dynamic_context(sender: str) -> str:
         agenda_ctx = ""
         existing_ctx = ""
 
-    return f"\n\nData atual: {data_atual}\n{agenda_ctx}{existing_ctx}"
+    import session as _sess
+    slot = _sess.get_pending_slot(sender)
+    slot_ctx = (
+        f"\nHORÁRIO SELECIONADO PELO CLIENTE: {slot['time']} em {slot['date']}. "
+        f"Use EXATAMENTE este horário ao confirmar o agendamento."
+    ) if slot else ""
+
+    return f"\n\nData atual: {data_atual}\n{agenda_ctx}{existing_ctx}{slot_ctx}"

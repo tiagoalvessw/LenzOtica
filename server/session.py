@@ -5,6 +5,7 @@ import db
 
 sessions: dict = {}
 _dirty: set = set()
+_pending_slots: dict = {}  # {phone: {"date": "AAAA-MM-DD", "time": "HH:MM"}}
 
 
 def load() -> None:
@@ -61,8 +62,21 @@ def pop_last(phone: str) -> None:
         return msg
 
 
+def set_pending_slot(phone: str, date: str, time: str) -> None:
+    _pending_slots[phone] = {"date": date, "time": time}
+
+
+def get_pending_slot(phone: str):
+    return _pending_slots.get(phone)
+
+
+def clear_pending_slot(phone: str) -> None:
+    _pending_slots.pop(phone, None)
+
+
 def reset_session(phone: str) -> None:
     sessions.pop(phone, None)
+    _pending_slots.pop(phone, None)
     _dirty.discard(phone)
     db.execute("DELETE FROM conversation_history WHERE phone = %s", (phone,))
 

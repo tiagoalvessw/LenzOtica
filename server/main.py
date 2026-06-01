@@ -143,6 +143,7 @@ def _is_duplicate(msg_id: str) -> bool:
 
 MARKER         = re.compile(r'\[AGENDAR:([^|]*)\|(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})\]')
 PENDING_MARKER = re.compile(r'\[PENDENTE:([^\]]+)\]')
+SLOT_MARKER    = re.compile(r'\[SLOT:(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})\]')
 DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
 
 _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "presente", "certo", "tá", "ta", "claro"}
@@ -1860,6 +1861,13 @@ async def webhook(request: Request, event_path: str = ""):
                 add_pending(sender, pending_match.group(1).strip())
                 reply = PENDING_MARKER.sub("", reply).strip()
 
+            slot_match = SLOT_MARKER.search(reply)
+            if slot_match:
+                import session as _sess_slot
+                _sess_slot.set_pending_slot(sender, slot_match.group(1), slot_match.group(2))
+                reply = SLOT_MARKER.sub("", reply).strip()
+                _log(f"[SLOT] {sender} selecionou {slot_match.group(2)} em {slot_match.group(1)}")
+
             reply = _restore_breaks(reply)
 
             parts = [p.strip() for p in reply.split("[BREAK]") if p.strip()]
@@ -1942,6 +1950,8 @@ async def webhook(request: Request, event_path: str = ""):
                         f"Não vou gerar [AGENDAR:...] novamente nesta conversa."
                     )
                     _log(f"[AGENDADO] {name} | {date_str} {time_str} — {sender}")
+                    import session as _sess_clr
+                    _sess_clr.clear_pending_slot(sender)
                 else:
                     clean = MARKER.sub("", part).strip()
                     if clean:
