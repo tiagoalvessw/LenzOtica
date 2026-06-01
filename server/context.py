@@ -197,6 +197,7 @@ def build_dynamic_context(sender: str) -> str:
                 busy_by_day.setdefault(a["date"], set()).add(a["time"])
 
         agenda_lines = []
+        slots_map: dict = {}
         for i in range(5):
             day = hoje + timedelta(days=i)
             day_str = day.strftime("%Y-%m-%d")
@@ -206,6 +207,10 @@ def build_dynamic_context(sender: str) -> str:
             if available:
                 label = "HOJE" if i == 0 else _DAY_NAMES[day.weekday()]
                 agenda_lines.append(f"{day_str} ({label}): {' | '.join(available[:5])}")
+                for t in available[:5]:
+                    slots_map.setdefault(t, day_str)  # primeira ocorrência do horário vence
+        import session as _sess_ctx
+        _sess_ctx.set_offered_slots(sender, slots_map)
 
         agenda_ctx = (
             "Horários disponíveis para agendamento (próximos 5 dias):\n"

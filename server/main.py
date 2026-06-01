@@ -144,6 +144,8 @@ def _is_duplicate(msg_id: str) -> bool:
 MARKER         = re.compile(r'\[AGENDAR:([^|]*)\|(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})\]')
 PENDING_MARKER = re.compile(r'\[PENDENTE:([^\]]+)\]')
 SLOT_MARKER    = re.compile(r'\[SLOT:(\d{4}-\d{2}-\d{2})\|(\d{2}:\d{2})\]')
+# Detecta seleção de horário: "11", "11h", "11hrs", "11:00", "às 11", "as 11h30"
+_TIME_PICK     = re.compile(r'(?:^|às?\s+|as\s+)(\d{1,2})(?::(\d{2}))?\s*(?:h(?:rs?)?)?\s*$', re.I)
 DIAS = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
 
 _POSITIVE = {"sim", "s", "confirmo", "confirmado", "vou", "ok", "pode", "presente", "certo", "tá", "ta", "claro"}
@@ -1439,6 +1441,24 @@ def _restore_breaks(reply: str) -> str:
     return reply
 
 
+def _detect_slot_selection(sender: str, user_text: str) -> None:
+    """Detecta seleção de horário na mensagem do usuário e salva em pending_slot."""
+    import session as _sess_det
+    m = _TIME_PICK.search(user_text.strip())
+    if not m:
+        return
+    hour = int(m.group(1))
+    minutes = m.group(2) or "00"
+    target = f"{hour:02d}:{minutes}"
+    offered = _sess_det.get_offered_slots(sender)
+    if not offered:
+        return
+    if target not in offered:
+        return
+    _sess_det.set_pending_slot(sender, offered[target], target)
+    _log(f"[SLOT-AUTO] {sender} selecionou {target} em {offered[target]} (input: {user_text!r})")
+
+
 def _ia_global_enabled() -> bool:
     """Retorna o estado do toggle global da IA."""
     try:
@@ -1854,6 +1874,7 @@ async def webhook(request: Request, event_path: str = ""):
                 _log(f"[CAMPANHA] Contexto injetado para {sender}")
 
         try:
+            _detect_slot_selection(sender, text)
             reply = await asyncio.to_thread(get_response, sender, text)
 
             pending_match = PENDING_MARKER.search(reply)
